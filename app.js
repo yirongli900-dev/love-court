@@ -342,6 +342,7 @@ function hydrateCard() {
     elements.providerLabel.hidden = true;
     elements.flipCardBtn.hidden = true;
     renderIndices();
+    requestAnimationFrame(syncCardHeight);
     return;
   }
   const { ratio, penalty, reason, indices } = current.verdict;
@@ -360,6 +361,7 @@ function hydrateCard() {
 
   // 翻牌按钮可见
   elements.flipCardBtn.hidden = false;
+  requestAnimationFrame(syncCardHeight);
 }
 
 function renderIndices(indices = {}) {
@@ -375,6 +377,17 @@ function formatIndex(value) {
 
 function renderVerdictDetail() {
   // verdictDetail 区域已移除，内容由 renderBackContent 负责
+}
+
+function syncCardHeight() {
+  const front = elements.cardFlip.querySelector(".card-front");
+  const back = elements.cardFlip.querySelector(".card-back");
+  if (!front) return;
+  if (back) back.style.display = "none";
+  elements.cardFlip.style.height = "auto";
+  const h = front.offsetHeight;
+  elements.cardFlip.style.height = h + "px";
+  if (back) back.style.display = "";
 }
 
 function flipToBack() {
