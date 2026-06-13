@@ -146,61 +146,80 @@
             <div class="share-actions">
               <button class="secondary-action small" id="copyVerdictBtn" type="button">复制文案</button>
               <button class="secondary-action small" id="saveCardBtn" type="button">生成图片</button>
+              <button class="secondary-action small" id="flipCardBtn" type="button" hidden>查看裁决理由</button>
             </div>
           </div>
 
-          <article class="verdict-card" id="verdictCard">
-            <div class="card-header">
-              <div>
-                <span>爱情法庭</span>
-                <strong id="cardCaseNo">暂无案件</strong>
-              </div>
-              <em>LOVE COURT VERDICT</em>
-            </div>
-            <h3 id="cardTitle">点击“生成裁决”后显示判决书</h3>
+          <div class="card-flip-container">
+            <div class="card-flip" id="cardFlip">
+              <!-- 正面 -->
+              <div class="card-face card-front">
+                <article class="verdict-card" id="verdictCard">
+                  <div class="card-header">
+                    <div>
+                      <span>爱情法庭</span>
+                      <strong id="cardCaseNo">暂无案件</strong>
+                    </div>
+                    <em>LOVE COURT VERDICT</em>
+                  </div>
+                  <h3 id="cardTitle">点击"生成裁决"后显示判决书</h3>
 
-            <div class="litigant-row">
-              <div>
-                <span>原告</span>
-                <strong id="cardPlaintiff">-</strong>
-              </div>
-              <b>VS</b>
-              <div>
-                <span>被告</span>
-                <strong id="cardDefendant">-</strong>
-              </div>
-            </div>
+                  <div class="litigant-row">
+                    <div>
+                      <span>原告</span>
+                      <strong id="cardPlaintiff">-</strong>
+                    </div>
+                    <b>VS</b>
+                    <div>
+                      <span>被告</span>
+                      <strong id="cardDefendant">-</strong>
+                    </div>
+                  </div>
 
-            <div class="ratio-box">
-              <span>责任比例</span>
-              <strong id="cardRatio">等待审理</strong>
-            </div>
+                  <div class="ratio-box">
+                    <span>责任比例</span>
+                    <strong id="cardRatio">等待审理</strong>
+                  </div>
 
-            <div class="index-grid" id="indexGrid">
-              <div class="index-item">
-                <span>嘴硬指数</span>
-                <strong id="hardMouthIndex">--</strong>
-              </div>
-              <div class="index-item">
-                <span>委屈指数</span>
-                <strong id="grievanceIndex">--</strong>
-              </div>
-              <div class="index-item">
-                <span>哄人难度</span>
-                <strong id="coaxDifficultyIndex">--</strong>
-              </div>
-              <div class="index-item">
-                <span>翻旧账风险</span>
-                <strong id="oldScoreRiskIndex">--</strong>
-              </div>
-            </div>
+                  <div class="index-grid" id="indexGrid">
+                    <div class="index-item">
+                      <span>嘴硬指数</span>
+                      <strong id="hardMouthIndex">--</strong>
+                    </div>
+                    <div class="index-item">
+                      <span>委屈指数</span>
+                      <strong id="grievanceIndex">--</strong>
+                    </div>
+                    <div class="index-item">
+                      <span>哄人难度</span>
+                      <strong id="coaxDifficultyIndex">--</strong>
+                    </div>
+                    <div class="index-item">
+                      <span>翻旧账风险</span>
+                      <strong id="oldScoreRiskIndex">--</strong>
+                    </div>
+                  </div>
 
-            <div class="penalty-box">
-              <span>判决结果</span>
-              <strong id="cardPenalty">奶茶席位空缺中</strong>
+                  <div class="penalty-box">
+                    <span>判决结果</span>
+                    <strong id="cardPenalty">奶茶席位空缺中</strong>
+                  </div>
+                  <p id="cardReason">AI法官将根据双方陈词生成事实认定、争议焦点与和解建议。</p>
+                  <div class="provider-label" id="providerLabel"></div>
+                </article>
+              </div>
+              <!-- 背面 -->
+              <div class="card-face card-back">
+                <div class="verdict-back-content">
+                  <div class="back-header">
+                    <h3>裁决理由</h3>
+                    <button class="secondary-action small" id="backToFrontBtn" type="button">返回正面</button>
+                  </div>
+                  <div id="backContent"></div>
+                </div>
+              </div>
             </div>
-            <p id="cardReason">AI法官将根据双方陈词生成事实认定、争议焦点与和解建议。</p>
-          </article>
+          </div>
 
           <section class="share-image-panel" id="shareImagePanel" hidden>
             <div class="panel-heading compact">
@@ -212,8 +231,6 @@
             </div>
             <img id="shareImagePreview" alt="判决书图片预览" />
           </section>
-
-          <section class="verdict-detail" id="verdictDetail" aria-live="polite"></section>
         </section>
       </section>
     </main>

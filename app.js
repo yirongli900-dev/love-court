@@ -39,7 +39,11 @@ const elements = {
   shareImagePanel: $("#shareImagePanel"),
   shareImagePreview: $("#shareImagePreview"),
   shareImageDownload: $("#shareImageDownload"),
-  verdictDetail: $("#verdictDetail"),
+  providerLabel: $("#providerLabel"),
+  cardFlip: $("#cardFlip"),
+  flipCardBtn: $("#flipCardBtn"),
+  backToFrontBtn: $("#backToFrontBtn"),
+  backContent: $("#backContent"),
   cardCaseNo: $("#cardCaseNo"),
   cardTitle: $("#cardTitle"),
   cardPlaintiff: $("#cardPlaintiff"),
@@ -218,8 +222,12 @@ async function createCase() {
 
 async function loadCase(caseId) {
   const payload = await api(`/api/cases/${encodeURIComponent(caseId)}`);
+  const isSameCase = state.currentCase?.id === payload.case.id;
   state.currentCase = payload.case;
   hydrateCase(payload.case);
+  if (!isSameCase) {
+    elements.cardFlip.classList.remove("flipped");
+  }
   startPolling();
 }
 
@@ -331,6 +339,8 @@ function hydrateCard() {
     elements.cardPenalty.textContent = "尚未宣判";
     elements.cardReason.textContent = "双方陈词同步完成后，AI法官会生成事实认定、责任比例和娱乐处罚。";
     elements.shareImagePanel.hidden = true;
+    elements.providerLabel.hidden = true;
+    elements.flipCardBtn.hidden = true;
     renderIndices();
     return;
   }
@@ -339,6 +349,17 @@ function hydrateCard() {
   elements.cardPenalty.textContent = penalty;
   elements.cardReason.textContent = reason;
   renderIndices(indices);
+
+  // 来源标识
+  if (current.verdict.provider === "deepseek") {
+    elements.providerLabel.textContent = "本裁决由 deepseek AI模型生成";
+  } else {
+    elements.providerLabel.textContent = "本裁决根据本地规则生成";
+  }
+  elements.providerLabel.hidden = false;
+
+  // 翻牌按钮可见
+  elements.flipCardBtn.hidden = false;
 }
 
 function renderIndices(indices = {}) {
@@ -353,32 +374,54 @@ function formatIndex(value) {
 }
 
 function renderVerdictDetail() {
+  // verdictDetail 区域已移除，内容由 renderBackContent 负责
+}
+
+function flipToBack() {
+  elements.cardFlip.classList.add("flipped");
+  renderBackContent();
+}
+
+function flipToFront() {
+  elements.cardFlip.classList.remove("flipped");
+}
+
+function renderBackContent() {
   const current = state.currentCase;
   if (!current?.verdict) {
-    elements.verdictDetail.innerHTML = "";
+    elements.backContent.innerHTML = "";
     return;
   }
   const verdict = current.verdict;
-  elements.verdictDetail.innerHTML = `
+  const reasoning = verdict.reasoning || [];
+
+  elements.backContent.innerHTML = `
     <div class="detail-block">
       <h3>事实认定</h3>
       <p>${escapeHtml(verdict.facts)}</p>
     </div>
+    ${reasoning.length ? `
+    <div class="detail-block">
+      <h3>推理步骤</h3>
+      <ol class="reasoning-list">
+        ${reasoning.map((item) => `<li><strong>${escapeHtml(item.label)}</strong><p>${escapeHtml(item.text)}</p></li>`).join("")}
+      </ol>
+    </div>` : ""}
     <div class="detail-block">
       <h3>争议焦点</h3>
       <ol>${verdict.focus.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol>
     </div>
-      <div class="detail-block">
-        <h3>判决理由</h3>
-        <p>${escapeHtml(verdict.reason)}</p>
-      </div>
-      <div class="detail-block">
-        <h3>娱乐指数</h3>
-        <p>嘴硬指数 ${escapeHtml(formatIndex(verdict.indices?.hardMouth))}，委屈指数 ${escapeHtml(formatIndex(verdict.indices?.grievance))}，哄人难度 ${escapeHtml(formatIndex(verdict.indices?.coaxDifficulty))}，翻旧账风险 ${escapeHtml(formatIndex(verdict.indices?.oldScoreRisk))}。</p>
-      </div>
-      <div class="detail-block">
-        <h3>和解建议</h3>
-        <p>${escapeHtml(verdict.settlement)}</p>
+    <div class="detail-block">
+      <h3>判决理由</h3>
+      <p>${escapeHtml(verdict.reason)}</p>
+    </div>
+    <div class="detail-block">
+      <h3>娱乐指数</h3>
+      <p>嘴硬指数 ${escapeHtml(formatIndex(verdict.indices?.hardMouth))}，委屈指数 ${escapeHtml(formatIndex(verdict.indices?.grievance))}，哄人难度 ${escapeHtml(formatIndex(verdict.indices?.coaxDifficulty))}，翻旧账风险 ${escapeHtml(formatIndex(verdict.indices?.oldScoreRisk))}。</p>
+    </div>
+    <div class="detail-block">
+      <h3>和解建议</h3>
+      <p>${escapeHtml(verdict.settlement)}</p>
     </div>
   `;
 }
@@ -469,6 +512,8 @@ function bindEvents() {
   elements.verdictBtn.addEventListener("click", generateVerdict);
   elements.copyVerdictBtn.addEventListener("click", exportShareCard);
   elements.saveCardBtn.addEventListener("click", showShareImage);
+  elements.flipCardBtn.addEventListener("click", flipToBack);
+  elements.backToFrontBtn.addEventListener("click", flipToFront);
   elements.clearArchiveBtn.addEventListener("click", async () => {
     if (!confirm("确定清空服务端案卷吗？")) return;
     await api("/api/cases", { method: "DELETE" });

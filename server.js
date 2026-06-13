@@ -309,6 +309,7 @@ function buildVerdict(item) {
     penalty,
     indices: buildFunIndices(item, ratio),
     settlement: "建议双方在判决后 30 分钟内完成和解动作：说清一个具体需求，给出一个具体补偿，然后本案封存，禁止无限上诉。",
+    reasoning: buildLocalReasoning(item, ratio),
   };
 }
 
@@ -324,6 +325,38 @@ function buildFunIndices(item, ratio) {
     coaxDifficulty: Math.min(95, Math.max(35, 45 + Math.abs(ratio.plaintiff - ratio.defendant) / 2 + (hasApology ? -6 : 12))),
     oldScoreRisk: Math.min(92, Math.max(25, hasOldScore ? 78 : hasSilent ? 48 : 36)),
   };
+}
+
+function buildLocalReasoning(item, ratio) {
+  const text = `${item.title} ${item.plaintiffStatement} ${item.defendantStatement}`;
+  const plaintiffText = `${item.plaintiffStatement} ${item.plaintiffAnswer}`;
+  const defendantText = `${item.defendantStatement} ${item.defendantAnswer}`;
+  const steps = [];
+
+  // 关键证据
+  const evidence = [];
+  if (item.plaintiffStatement) evidence.push(`原告称"${item.plaintiffStatement.slice(0, 40)}"`);
+  if (item.defendantStatement) evidence.push(`被告称"${item.defendantStatement.slice(0, 40)}"`);
+  steps.push({ step: 1, label: "关键证据", text: evidence.join("；") || "双方陈述已记录。" });
+
+  // 推理逻辑
+  const logicParts = [];
+  if (/忘|没回|没看|打游戏|睡着/.test(defendantText)) logicParts.push("被告存在忽视行为");
+  if (/翻旧账|阴阳|冷战|拉黑/.test(plaintiffText)) logicParts.push("原告存在扩大化行为");
+  if (/提前|说过|约好|答应/.test(plaintiffText)) logicParts.push("原告曾提前表达期待");
+  if (/道歉|补偿|解释|哄/.test(defendantText)) logicParts.push("被告有补救意愿");
+  if (!logicParts.length) logicParts.push("双方均有情绪表达，核心在于期待是否被说清");
+  steps.push({ step: 2, label: "推理逻辑", text: logicParts.join("，") + `。责任比例：原告${ratio.plaintiff}%，被告${ratio.defendant}%。` });
+
+  // 适用规则
+  let rule = "亲密关系中，小事背后的重视感比事件本身更重要。";
+  if (/已读|不回|消息|微信|回复/.test(text)) rule = "及时回复是基本尊重，忙碌时应主动报备状态。";
+  else if (/纪念日|生日|节日|礼物/.test(text)) rule = "重要日子需要被记住，遗忘时应主动补救。";
+  else if (/游戏|开黑|排位|电脑/.test(text)) rule = "约定时间优先于娱乐安排，变更需提前沟通。";
+  else if (/奶茶|外卖|吃|饭|零食/.test(text)) rule = "食物归属权应被尊重，未经同意不应处置。";
+  steps.push({ step: 3, label: "适用规则", text: rule });
+
+  return steps;
 }
 
 async function buildAiVerdict(item) {
@@ -369,9 +402,10 @@ async function buildAiVerdict(item) {
             content: [
               "请基于以下案件生成娱乐裁决。",
               "JSON 格式必须完全符合：",
-              '{"ratio":{"plaintiff":数字,"defendant":数字},"focus":["争议焦点1","争议焦点2","争议焦点3"],"facts":"事实认定，80字内","reason":"判决理由，120字内","penalty":"娱乐处罚，60字内","indices":{"hardMouth":数字,"grievance":数字,"coaxDifficulty":数字,"oldScoreRisk":数字},"settlement":"和解建议，80字内"}',
+              '{"ratio":{"plaintiff":数字,"defendant":数字},"focus":["争议焦点1","争议焦点2","争议焦点3"],"facts":"事实认定，80字内","reason":"判决理由，120字内","penalty":"娱乐处罚，60字内","indices":{"hardMouth":数字,"grievance":数字,"coaxDifficulty":数字,"oldScoreRisk":数字},"settlement":"和解建议，80字内","reasoning":[{"step":1,"label":"关键证据","text":"引用双方陈词中的关键事实，50字内"},{"step":2,"label":"推理逻辑","text":"说明责任划分的推理过程，80字内"},{"step":3,"label":"适用规则","text":"说明判罚依据的情侣相处规则，60字内"}]}',
               "责任比例相加必须等于100，单方责任不要低于15或高于85。",
               "indices 四项范围必须是 0 到 100 的整数，分别代表嘴硬指数、委屈指数、哄人难度、翻旧账风险。",
+              "reasoning 是 3 到 5 个推理步骤的数组，每步包含 step（序号）、label（步骤标签）、text（说明文字，80字内）。用用户易于理解的语言，避免技术术语。",
               "娱乐处罚可以是奶茶、道歉、拥抱、暂停翻旧账、陪伴等轻量动作。",
               JSON.stringify(prompt),
             ].join("\n"),
@@ -412,6 +446,7 @@ function normalizeAiVerdict(verdict, item) {
     penalty: String(verdict?.penalty || fallback.penalty).slice(0, 140),
     indices: normalizeIndices(verdict?.indices, fallback.indices),
     settlement: String(verdict?.settlement || fallback.settlement).slice(0, 180),
+    reasoning: normalizeReasoning(verdict?.reasoning, fallback.reasoning),
   };
 }
 
@@ -423,6 +458,15 @@ function normalizeIndices(indices, fallback) {
     normalized[key] = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : fallback[key];
   }
   return normalized;
+}
+
+function normalizeReasoning(input, fallback) {
+  if (!Array.isArray(input) || !input.length) return fallback;
+  return input.slice(0, 6).map((item, i) => ({
+    step: Number.isFinite(Number(item?.step)) ? Number(item.step) : i + 1,
+    label: String(item?.label || `步骤${i + 1}`).slice(0, 20),
+    text: String(item?.text || "").slice(0, 200),
+  })).filter((item) => item.text);
 }
 
 async function buildShareImagePng(item) {
@@ -480,6 +524,7 @@ function buildShareImageSvg(item) {
 
   ${svgTextLines(reasonLines, 78, 1270, 22, 34, "#374151", 500)}
   ${svgTextLines(settlementLines, 78, 1290 + reasonLines.length * 34, 20, 30, "#667085", 500)}
+  <text x="375" y="1490" text-anchor="middle" font-family="Microsoft YaHei, PingFang SC, Arial" font-size="14" fill="#9ca3af">${item.verdict?.provider === "deepseek" ? "本裁决由 AI 模型生成" : "本裁决根据本地规则生成"}</text>
 </svg>`;
 }
 
