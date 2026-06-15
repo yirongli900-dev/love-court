@@ -109,19 +109,21 @@ const IndexPage: React.FC = () => {
   const saveCase = async (quiet = false) => {
     if (!caseData.id) return;
     setLoading(true);
-    const patch: CasePatch =
-      role === 'plaintiff'
-        ? {
-            title: trimInput(caseData.title, 220),
-            plaintiffName: trimInput(caseData.plaintiffName, 220),
-            defendantName: trimInput(caseData.defendantName, 220),
-            plaintiffStatement: trimInput(caseData.plaintiffStatement, 500),
-            plaintiffAnswer: trimInput(caseData.plaintiffAnswer, 220),
-          }
-        : {
-            defendantStatement: trimInput(caseData.defendantStatement, 500),
-            defendantAnswer: trimInput(caseData.defendantAnswer, 220),
-          };
+    const plaintiffFields = {
+      title: trimInput(caseData.title, 220),
+      plaintiffName: trimInput(caseData.plaintiffName, 220),
+      defendantName: trimInput(caseData.defendantName, 220),
+      plaintiffStatement: trimInput(caseData.plaintiffStatement, 500),
+      plaintiffAnswer: trimInput(caseData.plaintiffAnswer, 220),
+    };
+    const defendantFields = {
+      defendantStatement: trimInput(caseData.defendantStatement, 500),
+      defendantAnswer: trimInput(caseData.defendantAnswer, 220),
+    };
+    const patch: CasePatch = {
+      ...plaintiffFields,
+      ...defendantFields,
+    };
     try {
       const payload = await courtApi.updateCase(caseData.id, patch);
       setCaseData(payload.case);
