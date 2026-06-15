@@ -229,6 +229,7 @@ miniprogram/ 小程序页面骨架
 
 - [PRD.md](./PRD.md)
 - [ROADMAP.md](./ROADMAP.md)
+- [Love Court 项目说明书](./docs/PROJECT_OVERVIEW.md)
 
 ## 注意
 
