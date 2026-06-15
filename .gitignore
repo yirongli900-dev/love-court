@@ -1,7 +1,10 @@
-.env
-data/
-shots/
-*.log
 node_modules/
+dist/
+.taro/
+.pai/
+.trae/
+*.log
 .DS_Store
-Thumbs.db
+
+# 调试会话记录（一次性）
+debug-*.md

@@ -1,0 +1,115 @@
+@use '@/styles/variables.scss' as *;
+
+.container {
+  min-height: 100vh;
+  padding: 32rpx;
+  background: linear-gradient(180deg, #fff7f0 0%, $color-bg-page 100%);
+}
+
+.header,
+.caseCard,
+.emptyCard {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 24rpx;
+  padding: 32rpx;
+  border-radius: 28rpx;
+  background: $color-bg-card;
+  box-shadow: $shadow-card;
+}
+
+.title {
+  display: block;
+  font-size: 44rpx;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+}
+
+.desc,
+.caseMeta,
+.caseResult,
+.emptyText {
+  display: block;
+  margin-top: 14rpx;
+  font-size: $font-size-sm;
+  line-height: $line-height-loose;
+  color: $color-text-secondary;
+}
+
+.refreshButton {
+  @include button-reset;
+  margin-top: 24rpx;
+  width: 100%;
+  height: 80rpx;
+  border-radius: $radius-button;
+  color: $color-text-white;
+  background: linear-gradient(135deg, $color-primary, $color-primary-light);
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  border: 2rpx solid transparent;
+
+  &:active {
+    opacity: 0.9;
+    transform: scale(0.98);
+  }
+}
+
+.caseCard {
+  transition: all $transition-base;
+
+  &:active {
+    transform: scale(0.99);
+    opacity: 0.94;
+  }
+}
+
+.caseHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.caseNo {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-bold;
+  color: $color-primary-dark;
+}
+
+.doneTag,
+.pendingTag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 104rpx;
+  height: 44rpx;
+  border-radius: $radius-round;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+}
+
+.doneTag {
+  color: #0e7a2e;
+  background: rgba(0, 180, 42, 0.12);
+}
+
+.pendingTag {
+  color: #9a5a00;
+  background: rgba(255, 125, 0, 0.12);
+}
+
+.caseTitle {
+  display: block;
+  margin-top: 18rpx;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+  @include text-ellipsis;
+}
+
+.emptyTitle {
+  display: block;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+}
