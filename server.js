@@ -661,7 +661,7 @@ function createCase(store, user) {
 function joinCase(store, caseId, user, body) {
   const { item } = requireCase(store, caseId);
   const existingParticipant = store.caseParticipants.find((entry) => entry.caseId === caseId && entry.userId === user.id);
-  const requestedRole = body && body.role === "defendant" ? "defendant" : "plaintiff";
+  const requestedRole = existingParticipant ? existingParticipant.role : "defendant";
   const inviteCode = String(body && body.inviteCode ? body.inviteCode : "").trim();
 
   if (!existingParticipant) {
@@ -682,7 +682,6 @@ function joinCase(store, caseId, user, body) {
   }
 
   if (existingParticipant) {
-    existingParticipant.role = requestedRole;
     existingParticipant.lastSeenAt = now;
   } else {
     store.caseParticipants.unshift(normalizeParticipantRecord({
@@ -749,10 +748,15 @@ function purgeCase(store, caseId, userId) {
 function updateStatements(store, caseId, user, body) {
   const { item } = requireCase(store, caseId);
   requireParticipant(store, caseId, user.id);
-  const role = body && body.role === "defendant" ? "defendant" : body && body.role === "plaintiff" ? "plaintiff" : getParticipantRole(store, caseId, user.id) || "plaintiff";
+  const role = getParticipantRole(store, caseId, user.id);
+  if (!role) {
+    const error = new Error("无权访问该案件");
+    error.status = 403;
+    throw error;
+  }
   ensureParticipant(store, caseId, user.id, role);
   const now = new Date().toISOString();
-  const patch = sanitizeCasePatch(body || {});
+  const patch = filterPatchForRole(sanitizeCasePatch(body || {}), role);
   const existing = store.caseStatements.find((entry) => entry.caseId === caseId && entry.userId === user.id);
   const nextStatement = normalizeStatementRecord(existing ? Object.assign({}, existing, patch, {
     role,
@@ -843,9 +847,17 @@ function ensureParticipant(store, caseId, userId, role) {
     store.caseParticipants.unshift(participant);
     return participant;
   }
-  participant.role = role;
   participant.lastSeenAt = now;
   return participant;
+}
+
+function filterPatchForRole(patch, role) {
+  const allowedByRole = {
+    plaintiff: ["title", "plaintiffName", "defendantName", "plaintiffStatement", "plaintiffAnswer"],
+    defendant: ["defendantStatement", "defendantAnswer"],
+  };
+  const allowed = new Set(allowedByRole[role] || []);
+  return Object.fromEntries(Object.entries(patch).filter(([key]) => allowed.has(key)));
 }
 
 function sanitizeCasePatch(body) {
@@ -981,22 +993,44 @@ function buildVerdict(item) {
   const defendantLoses = ratio.defendant >= ratio.plaintiff;
   const loser = defendantLoses ? item.defendantName : item.plaintiffName;
   const winner = defendantLoses ? item.plaintiffName : item.defendantName;
-  let penalty = `${loser}请${winner}喝奶茶一杯，并提供一次认真道歉。`;
-  if (/已读|不回|消息|微信|回复/.test(text)) penalty = `${loser}需主动报备忙碌状态 24 小时，并补发一句不敷衍的想念。`;
+  let penalty = `本庭判决：${loser}向${winner}赔付奶茶一杯，并提交不少于三句的真诚道歉陈述。`;
+  if (/已读|不回|消息|微信|回复/.test(text)) penalty = `本庭判决：${loser}执行“消息不失踪”观察期 24 小时，并补发一句不敷衍的想念。`;
   if (/纪念日|生日|节日|礼物/.test(text)) penalty = `${loser}补办一次小型仪式，预算不低于一杯奶茶加一朵花。`;
-  if (/游戏|开黑|排位|电脑/.test(text)) penalty = `${loser}暂停排位一晚，安排一次完整陪伴局。`;
-  if (/奶茶|外卖|吃|饭|零食/.test(text)) penalty = `${loser}赔偿同款食物一份，并承诺下次先问归属权。`;
+  if (/游戏|开黑|排位|电脑/.test(text)) penalty = `本庭判决：${loser}暂停排位一晚，改开一局认真陪伴局。`;
+  if (/奶茶|外卖|吃|饭|零食/.test(text)) penalty = `本庭判决：${loser}赔偿同款食物一份，并学习“入口之前先确认归属权”。`;
   if (Math.abs(ratio.defendant - ratio.plaintiff) <= 10) penalty = "双方各退一步：一人道歉一句，一人停止翻旧账 24 小时。";
+  const quote = buildCaseQuote(item, ratio);
   return {
     ratio,
-    focus: ["双方是否提前表达期待与边界", "是否存在失约、忽视或沟通不足", "事后是否主动解释、补救与安抚"],
-    facts: `经审理，本案主要围绕“${item.title}”展开。双方均有表达情绪，但争议核心不在输赢，而在期待是否被说清、承诺是否被尊重。`,
-    reason: `本庭认为，亲密关系里的小事通常不是小事本身，而是背后的重视感。${loser}在本案中需要承担更多安抚和补救义务，${winner}也应避免把本案扩大为历史总账。`,
+    focus: ["期待是否提前表达清楚", "承诺是否被认真执行", "事后是否及时解释和安抚"],
+    facts: `本庭查明，本案案由为“${item.title}”。双方争议表面看是小事，实质是重视感、边界感与沟通时机的联合罢工。`,
+    reason: `本庭认为，${loser}在本案中更应承担安抚与补救义务；${winner}虽有委屈，但也应避免把本案升级为历史连续剧。`,
+    quote,
     penalty,
     indices: buildFunIndices(item, ratio),
-    settlement: "建议双方在判决后 30 分钟内完成和解动作：说清一个具体需求，给出一个具体补偿，然后本案封存，禁止无限上诉。",
+    settlement: "判决生效后，请双方完成一次不翻旧账沟通：一个人说明需求，一个人给出补偿，本案当晚封存。",
     reasoning: buildLocalReasoning(item, ratio),
   };
+}
+
+function buildCaseQuote(item, ratio) {
+  const text = `${item.title} ${item.plaintiffStatement} ${item.defendantStatement}`;
+  if (/已读|不回|消息|微信|回复/.test(text)) {
+    return "本案提醒：已读不是传送门，回复才是安全出口。";
+  }
+  if (/纪念日|生日|节日|礼物/.test(text)) {
+    return "本案提醒：重要日子可以补救，但不能靠对方破案。";
+  }
+  if (/游戏|开黑|排位|电脑/.test(text)) {
+    return "本案提醒：排位可以重开，陪伴掉线要及时重连。";
+  }
+  if (/奶茶|外卖|吃|饭|零食/.test(text)) {
+    return "本案提醒：食物归属权，也是亲密关系基本法。";
+  }
+  if (Math.abs(ratio.defendant - ratio.plaintiff) <= 10) {
+    return "本案提醒：输赢先放一边，台阶要成双成对。";
+  }
+  return "本案提醒：小事不小，重视感要及时送达。";
 }
 
 function buildFunIndices(item, ratio) {
@@ -1076,7 +1110,9 @@ async function buildAiVerdict(item) {
             role: "system",
             content: [
               "你是 AI情侣法庭的娱乐法官，只处理情侣、朋友、室友之间的轻量互动争议。",
-              "你的目标不是严肃判案，而是在轻松、好笑、克制的语气中帮助双方表达、倾听与和解。",
+              "你的目标不是严肃判案，而是把争执包装成一份有仪式感、可转发、会让双方愿意笑一下的娱乐裁决。",
+              "语言风格：像一本正经的爱情法庭判决书，轻微幽默，短句有梗，但不要油腻、不要阴阳怪气、不要羞辱任何一方。",
+              "判决逻辑：先承认双方感受，再指出关键沟通问题，最后给出可执行的轻量处罚和和解动作。",
               "禁止提供法律咨询、医疗建议、投资建议、危机干预、代码生成或泛闲聊。",
               "只输出合法 JSON，不要使用 Markdown，不要添加解释性前后缀。",
             ].join("\n"),
@@ -1086,10 +1122,14 @@ async function buildAiVerdict(item) {
             content: [
               "请基于以下案件生成娱乐裁决。",
               "JSON 格式必须完全符合：",
-              '{"ratio":{"plaintiff":数字,"defendant":数字},"focus":["争议焦点1","争议焦点2","争议焦点3"],"facts":"事实认定，80字内","reason":"判决理由，120字内","penalty":"娱乐处罚，60字内","indices":{"hardMouth":数字,"grievance":数字,"coaxDifficulty":数字,"oldScoreRisk":数字},"settlement":"和解建议，80字内","reasoning":[{"step":1,"label":"关键证据","text":"引用双方陈词中的关键事实，50字内"},{"step":2,"label":"推理逻辑","text":"说明责任划分的推理过程，80字内"},{"step":3,"label":"适用规则","text":"说明判罚依据的情侣相处规则，60字内"}]}',
+              '{"ratio":{"plaintiff":数字,"defendant":数字},"focus":["争议焦点1","争议焦点2","争议焦点3"],"facts":"事实认定，80字内","reason":"判决理由，120字内","quote":"本案金句，28字内","penalty":"娱乐处罚，60字内","indices":{"hardMouth":数字,"grievance":数字,"coaxDifficulty":数字,"oldScoreRisk":数字},"settlement":"和解建议，80字内","reasoning":[{"step":1,"label":"关键证据","text":"引用双方陈词中的关键事实，50字内"},{"step":2,"label":"推理逻辑","text":"说明责任划分的推理过程，80字内"},{"step":3,"label":"适用规则","text":"说明判罚依据的情侣相处规则，60字内"}]}',
               "责任比例相加必须等于100，单方责任不要低于15或高于85。",
               "indices 四项范围必须是 0 到 100 的整数，分别代表嘴硬指数、委屈指数、哄人难度、翻旧账风险。",
               "reasoning 是 3 到 5 个推理步骤的数组，每步包含 step（序号）、label（步骤标签）、text（说明文字，80字内）。用用户易于理解的语言，避免技术术语。",
+              "facts 要像“本庭查明”，reason 要像“本庭认为”，penalty 要像“本庭判决”。",
+              "quote 是最适合截图传播的一句金句，要短、好记、有轻微幽默感，但不能嘲讽任何一方，也不要使用破碎、崩溃、完了、分手等扩大矛盾的词。",
+              "不要输出心理诊断，不要劝分，不要扩大矛盾，不要使用法律术语冒充真实法律结论。",
+              "优先生成适合截图传播的句子，避免长段说教。",
               "娱乐处罚可以是奶茶、道歉、拥抱、暂停翻旧账、陪伴等轻量动作。",
               JSON.stringify(prompt),
             ].join("\n"),
@@ -1127,6 +1167,7 @@ function normalizeAiVerdict(verdict, item) {
     focus: Array.isArray(verdict?.focus) && verdict.focus.length ? verdict.focus.slice(0, 3).map(String) : fallback.focus,
     facts: String(verdict?.facts || fallback.facts).slice(0, 180),
     reason: String(verdict?.reason || fallback.reason).slice(0, 240),
+    quote: normalizeQuote(verdict?.quote, fallback.quote),
     penalty: String(verdict?.penalty || fallback.penalty).slice(0, 140),
     indices: normalizeIndices(verdict?.indices, fallback.indices),
     settlement: String(verdict?.settlement || fallback.settlement).slice(0, 180),
@@ -1142,6 +1183,13 @@ function normalizeIndices(indices, fallback) {
     normalized[key] = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : fallback[key];
   }
   return normalized;
+}
+
+function normalizeQuote(input, fallback) {
+  const quote = String(input || "").trim().slice(0, 80);
+  if (!quote) return fallback;
+  if (/破碎|崩溃|完了|分手|没救|绝望|毁了/.test(quote)) return fallback;
+  return quote;
 }
 
 function normalizeReasoning(input, fallback) {
@@ -1199,9 +1247,9 @@ function buildShareImageSvg(item) {
   const verdict = item.verdict;
   const ratioText = `${item.plaintiffName} ${verdict.ratio.plaintiff}% / ${item.defendantName} ${verdict.ratio.defendant}%`;
   const indices = verdict.indices || {};
-  const reasonLines = wrapText(verdict.reason || "", 27, 4);
+  const quoteLines = wrapText(verdict.quote || verdict.settlement || verdict.reason || "小事不小，重视感要及时送达。", 22, 2);
+  const reasonLines = wrapText(verdict.reason || "", 27, 3);
   const penaltyLines = wrapText(verdict.penalty || "", 24, 3);
-  const settlementLines = wrapText(verdict.settlement || "", 24, 3);
   const titleLines = wrapText(item.title || "未命名案件", 10, 2);
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -1223,26 +1271,29 @@ function buildShareImageSvg(item) {
   <text x="78" y="176" font-family="Arial" font-size="18" font-weight="900" fill="#255a9b">LOVE COURT VERDICT</text>
   ${svgTextLines(titleLines, 78, 250, 48, 48, "#111827", 900)}
 
-  ${svgInfoBox(78, 332, 594, 96, "原告", item.plaintiffName)}
-  <circle cx="375" cy="468" r="36" fill="#b42318"/>
-  <text x="375" y="480" text-anchor="middle" font-family="Arial" font-size="22" font-weight="900" fill="#ffffff">VS</text>
-  ${svgInfoBox(78, 508, 594, 96, "被告", item.defendantName)}
+  <rect x="78" y="330" width="594" height="104" rx="14" fill="#fff8e9" stroke="#e6be78"/>
+  <rect x="100" y="354" width="5" height="56" rx="2" fill="#b7791f"/>
+  ${svgTextLines(quoteLines, 124, 374, 25, 34, "#5b3714", 900)}
 
-  <rect x="78" y="642" width="594" height="116" rx="12" fill="#fffdf8" stroke="#efb7b3"/>
-  <text x="104" y="688" font-family="Microsoft YaHei, PingFang SC, Arial" font-size="22" font-weight="800" fill="#667085">责任比例</text>
-  <text x="104" y="734" font-family="Microsoft YaHei, PingFang SC, Arial" font-size="34" font-weight="900" fill="#b42318">${escapeSvg(ratioText)}</text>
+  ${svgInfoBox(78, 472, 594, 92, "原告", item.plaintiffName)}
+  <circle cx="375" cy="604" r="34" fill="#b42318"/>
+  <text x="375" y="615" text-anchor="middle" font-family="Arial" font-size="21" font-weight="900" fill="#ffffff">VS</text>
+  ${svgInfoBox(78, 644, 594, 92, "被告", item.defendantName)}
 
-  ${svgIndexBox(78, 790, "嘴硬指数", indices.hardMouth, 280)}
-  ${svgIndexBox(392, 790, "委屈指数", indices.grievance, 280)}
-  ${svgIndexBox(78, 930, "哄人难度", indices.coaxDifficulty, 280)}
-  ${svgIndexBox(392, 930, "翻旧账风险", indices.oldScoreRisk, 280)}
+  <rect x="78" y="772" width="594" height="112" rx="12" fill="#fffdf8" stroke="#efb7b3"/>
+  <text x="104" y="816" font-family="Microsoft YaHei, PingFang SC, Arial" font-size="22" font-weight="800" fill="#667085">责任比例</text>
+  <text x="104" y="860" font-family="Microsoft YaHei, PingFang SC, Arial" font-size="34" font-weight="900" fill="#b42318">${escapeSvg(ratioText)}</text>
 
-  <rect x="78" y="1080" width="594" height="142" rx="12" fill="#eef8f2" stroke="#b7dfc6"/>
-  <text x="104" y="1124" font-family="Microsoft YaHei, PingFang SC, Arial" font-size="22" font-weight="800" fill="#12613e">判决结果</text>
-  ${svgTextLines(penaltyLines, 104, 1164, 24, 34, "#006b47", 900)}
+  ${svgIndexBox(78, 918, "嘴硬指数", indices.hardMouth, 280)}
+  ${svgIndexBox(392, 918, "委屈指数", indices.grievance, 280)}
+  ${svgIndexBox(78, 1048, "哄人难度", indices.coaxDifficulty, 280)}
+  ${svgIndexBox(392, 1048, "翻旧账风险", indices.oldScoreRisk, 280)}
 
-  ${svgTextLines(reasonLines, 78, 1270, 22, 34, "#374151", 500)}
-  ${svgTextLines(settlementLines, 78, 1290 + reasonLines.length * 34, 20, 30, "#667085", 500)}
+  <rect x="78" y="1188" width="594" height="140" rx="12" fill="#eef8f2" stroke="#b7dfc6"/>
+  <text x="104" y="1230" font-family="Microsoft YaHei, PingFang SC, Arial" font-size="22" font-weight="800" fill="#12613e">判决结果</text>
+  ${svgTextLines(penaltyLines, 104, 1268, 24, 34, "#006b47", 900)}
+
+  ${svgTextLines(reasonLines, 78, 1382, 22, 34, "#374151", 500)}
   <text x="375" y="1490" text-anchor="middle" font-family="Microsoft YaHei, PingFang SC, Arial" font-size="14" fill="#9ca3af">${item.verdict?.provider === "deepseek" ? "本裁决由 AI 模型生成" : "本裁决根据本地规则生成"}</text>
 </svg>`;
 }

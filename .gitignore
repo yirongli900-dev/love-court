@@ -1,22 +1,24 @@
+.env
+.env.local
+.auth/
+
 node_modules/
 dist/
 .taro/
 .pai/
 .trae/
-*.log
-.DS_Store
-
-# 敏感文件（密钥/凭证）
-.env
-.env.local
-.auth/
-
-# 构建缓存与临时文件
 .swc/
 .rebuild-marker
 
-# 调试会话记录（一次性）
+data/
+shots/
+local-work/
+docs/**/docx-work/
+
+*.log
 debug-*.md
+.DS_Store
+Thumbs.db
 
 # 运行时数据与海报缓存
 data/cases.json
