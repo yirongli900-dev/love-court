@@ -2,6 +2,7 @@
 data/
 shots/
 local-work/
+docs/**/docx-work/
 *.log
 node_modules/
 .DS_Store
