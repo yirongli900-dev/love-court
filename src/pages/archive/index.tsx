@@ -4,11 +4,12 @@ import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { courtApi } from '@/services/court';
 import type { CourtCase } from '@/types/court';
 import { setCurrentCaseId, subscribeNetworkStatus } from '@/utils/court';
+import { PageErrorBoundary } from '@/components/PageErrorBoundary';
 import styles from './index.module.scss';
 
 type LoadState = 'idle' | 'loading' | 'empty' | 'error' | 'success';
 
-const ArchivePage: React.FC = () => {
+const ArchivePageInner: React.FC = () => {
   const [cases, setCases] = useState<CourtCase[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
@@ -144,6 +145,14 @@ const ArchivePage: React.FC = () => {
         </>
       ) : null}
     </View>
+  );
+};
+
+const ArchivePage: React.FC = () => {
+  return (
+    <PageErrorBoundary>
+      <ArchivePageInner />
+    </PageErrorBoundary>
   );
 };
 

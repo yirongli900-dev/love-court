@@ -1,5 +1,8 @@
 declare const wx: any;
 
+import Taro from '@tarojs/taro';
+import { cloudEnabled, cloudEnvId } from '@/config/env';
+
 /**
  * 微信云开发抽象层
  *
@@ -24,11 +27,10 @@ export class CloudDevelopmentNotAvailableError extends Error {
  */
 export function isCloudAvailable(): boolean {
   try {
-    if (typeof process === 'undefined' || process.env.TARO_ENV !== 'weapp') {
+    // 使用 Taro.getEnv() 替代 process.env.TARO_ENV，避免 process 未定义问题
+    if (Taro.getEnv() !== Taro.ENV_TYPE.WEAPP) {
       return false;
     }
-    // 动态读取 cloudEnabled，避免循环依赖
-    const { cloudEnabled } = require('@/config/env');
     if (!cloudEnabled) return false;
     // 检查 wx.cloud 全局对象
     if (typeof wx === 'undefined' || !wx.cloud) {
@@ -46,12 +48,11 @@ export function isCloudAvailable(): boolean {
  * 在小程序入口调用，失败不抛错只输出日志
  */
 export function initCloudDevelopment(): void {
-  if (typeof process === 'undefined' || process.env.TARO_ENV !== 'weapp') {
+  if (Taro.getEnv() !== Taro.ENV_TYPE.WEAPP) {
     console.info('[Cloud] skip init: not in weapp env');
     return;
   }
   try {
-    const { cloudEnabled, cloudEnvId } = require('@/config/env');
     if (!cloudEnabled) {
       console.info('[Cloud] skip init: cloud disabled');
       return;

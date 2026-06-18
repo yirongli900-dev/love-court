@@ -4,11 +4,12 @@ import Taro, { useDidShow, useShareAppMessage } from '@tarojs/taro';
 import { courtApi } from '@/services/court';
 import type { CourtCase } from '@/types/court';
 import { getCurrentCaseId, getProviderLabel, subscribeNetworkStatus } from '@/utils/court';
+import { PageErrorBoundary } from '@/components/PageErrorBoundary';
 import styles from './index.module.scss';
 
 type LoadState = 'loading' | 'empty' | 'error' | 'success';
 
-const SharePage: React.FC = () => {
+const SharePageInner: React.FC = () => {
   const [caseData, setCaseData] = useState<CourtCase | null>(null);
   const [loading, setLoading] = useState(false);
   const [posterLoading, setPosterLoading] = useState(false);
@@ -216,6 +217,14 @@ const SharePage: React.FC = () => {
         </View>
       ) : null}
     </View>
+  );
+};
+
+const SharePage: React.FC = () => {
+  return (
+    <PageErrorBoundary>
+      <SharePageInner />
+    </PageErrorBoundary>
   );
 };
 
