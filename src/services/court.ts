@@ -1,6 +1,6 @@
 import Taro from '@tarojs/taro';
 import { buildApiUrl } from '@/config/env';
-import { getBusinessAuthHeader, getClientIdentityHeader } from '@/services/auth';
+import { clearBusinessSession, getBusinessAuthHeader, getClientIdentityHeader } from '@/services/auth';
 import type { CasePatch, CourtCase, JoinCaseInput, VerdictRatio, UserRole } from '@/types/court';
 
 const LOCAL_CASES_KEY = 'love-court-miniapp-cases';
@@ -35,14 +35,23 @@ async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' | 'DELE
     if (response.statusCode < 200 || response.statusCode >= 300) {
       const message = response.data?.error || '请求失败，请稍后重试';
       console.error('[CourtAPI] failed', { path, method, statusCode: response.statusCode, message });
-      throw new Error(message);
+      // 401 清理过期 session，让下次请求触发重新登录
+      if (response.statusCode === 401) {
+        clearBusinessSession();
+      }
+      const error = new Error(message);
+      (error as any).statusCode = response.statusCode;
+      throw error;
     }
 
     return response.data as T;
-  } catch (error) {
+  } catch (error: any) {
     const message = error instanceof Error ? error.message : JSON.stringify(error || {});
     console.warn('[CourtAPI] exception', { path, method, message });
-    throw new Error(message || '后端服务不可达');
+    // 保留已有 statusCode，避免 withLocalFallback 误降级 401
+    const wrapped = new Error(message || '后端服务不可达');
+    (wrapped as any).statusCode = error?.statusCode;
+    throw wrapped;
   }
 }
 
@@ -149,7 +158,11 @@ function buildLocalVerdict(item: CourtCase) {
 async function withLocalFallback<T>(remoteAction: () => Promise<T>, localAction: () => T): Promise<T> {
   try {
     return await remoteAction();
-  } catch (error) {
+  } catch (error: any) {
+    // 401 是鉴权失败，不降级本地，直接抛出让上层处理（触发重登）
+    if (error?.statusCode === 401) {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : JSON.stringify(error || {});
     console.warn('[CourtAPI] fallback to local rules', message);
     return localAction();
