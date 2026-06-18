@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Input, Text, Textarea, View } from '@tarojs/components';
 import Taro, { useDidShow, useLoad, useShareAppMessage } from '@tarojs/taro';
 import { courtApi } from '@/services/court';
-import { isCloudAvailable, pingHealthCheck } from '@/services/cloud';
+import { PageErrorBoundary } from '@/components/PageErrorBoundary';
 import { isDevelopmentEnv } from '@/config/env';
 import type { CasePatch, CourtCase, UserRole } from '@/types/court';
 import {
@@ -40,7 +40,7 @@ const emptyCase: CourtCase = {
   updatedAt: '',
 };
 
-const IndexPage: React.FC = () => {
+const IndexPageInner: React.FC = () => {
   const [caseData, setCaseData] = useState<CourtCase>(emptyCase);
   const [role, setRole] = useState<UserRole>('plaintiff');
   const [loading, setLoading] = useState(false);
@@ -251,9 +251,26 @@ const IndexPage: React.FC = () => {
   };
 
   // 调试入口：验证云开发连通性（仅开发模式 + 云可用时显示）
+  // 使用动态 import 隔离 cloud 模块，避免顶层加载失败导致页面白屏
+  const [cloudReady, setCloudReady] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    import('@/services/cloud')
+      .then(({ isCloudAvailable }) => {
+        if (mounted) setCloudReady(isCloudAvailable());
+      })
+      .catch(() => {
+        /* 云模块加载失败，保持 cloudReady=false */
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const testCloudConnection = async () => {
     Taro.showLoading({ title: '测试中...', mask: true });
     try {
+      const { pingHealthCheck } = await import('@/services/cloud');
       const ok = await pingHealthCheck();
       Taro.hideLoading();
       if (ok) {
@@ -472,7 +489,7 @@ const IndexPage: React.FC = () => {
             </Button>
           </View>
 
-          {isDevelopmentEnv && isCloudAvailable() && (
+          {isDevelopmentEnv && cloudReady && (
             <View className={styles.actionGrid}>
               <Button className={styles.secondaryButton} hoverClass="none" onClick={testCloudConnection}>
                 <View className={styles.buttonInner}>
@@ -537,6 +554,14 @@ const IndexPage: React.FC = () => {
         </>
       )}
     </View>
+  );
+};
+
+const IndexPage: React.FC = () => {
+  return (
+    <PageErrorBoundary>
+      <IndexPageInner />
+    </PageErrorBoundary>
   );
 };
 

@@ -1,8 +1,6 @@
 import Taro from '@tarojs/taro';
 import { buildApiUrl } from '@/config/env';
 import { getBusinessAuthHeader, getClientIdentityHeader } from '@/services/auth';
-import { isCloudAvailable } from '@/services/cloud';
-import { generateVerdictByCloud, generateQuestionByCloud } from '@/services/cloud-ai';
 import type { CasePatch, CourtCase, JoinCaseInput, VerdictRatio, UserRole } from '@/types/court';
 
 const LOCAL_CASES_KEY = 'love-court-miniapp-cases';
@@ -198,18 +196,24 @@ export const courtApi = {
     const localAction = () => ({ case: updateLocalCase(caseId, (item) => ({ ...item, question: buildLocalQuestion(item), updatedAt: new Date().toISOString() })) });
     if (isLocalCase(caseId)) return localAction();
 
-    // 1. 云函数优先（当云可用时尝试 AI 生成）
-    if (isCloudAvailable()) {
-      try {
-        const caseData = getLocalCase(caseId);
-        if (caseData) {
-          const question = await generateQuestionByCloud(caseData);
-          const updated = updateLocalCase(caseId, (item) => ({ ...item, question, updatedAt: new Date().toISOString() }));
-          return { case: updated };
+    // 1. 云函数优先（动态 import 隔离，避免顶层加载失败）
+    try {
+      const { isCloudAvailable } = await import('@/services/cloud');
+      if (isCloudAvailable()) {
+        try {
+          const { generateQuestionByCloud } = await import('@/services/cloud-ai');
+          const caseData = getLocalCase(caseId);
+          if (caseData) {
+            const question = await generateQuestionByCloud(caseData);
+            const updated = updateLocalCase(caseId, (item) => ({ ...item, question, updatedAt: new Date().toISOString() }));
+            return { case: updated };
+          }
+        } catch (error) {
+          console.warn('[CourtAPI] cloud AI question failed, fallback', error);
         }
-      } catch (error) {
-        console.warn('[CourtAPI] cloud AI question failed, fallback', error);
       }
+    } catch (error) {
+      console.warn('[CourtAPI] cloud module load failed, fallback', error);
     }
 
     // 2. 降级到自建后端，再降级到本地规则
@@ -239,18 +243,24 @@ export const courtApi = {
     const localAction = () => ({ case: updateLocalCase(caseId, (item) => ({ ...item, verdict: buildLocalVerdict(item), updatedAt: new Date().toISOString() })) });
     if (isLocalCase(caseId)) return localAction();
 
-    // 1. 云函数优先（当云可用时尝试 AI 生成）
-    if (isCloudAvailable()) {
-      try {
-        const caseData = getLocalCase(caseId);
-        if (caseData) {
-          const verdict = await generateVerdictByCloud(caseData);
-          const updated = updateLocalCase(caseId, (item) => ({ ...item, verdict, updatedAt: new Date().toISOString() }));
-          return { case: updated };
+    // 1. 云函数优先（动态 import 隔离，避免顶层加载失败）
+    try {
+      const { isCloudAvailable } = await import('@/services/cloud');
+      if (isCloudAvailable()) {
+        try {
+          const { generateVerdictByCloud } = await import('@/services/cloud-ai');
+          const caseData = getLocalCase(caseId);
+          if (caseData) {
+            const verdict = await generateVerdictByCloud(caseData);
+            const updated = updateLocalCase(caseId, (item) => ({ ...item, verdict, updatedAt: new Date().toISOString() }));
+            return { case: updated };
+          }
+        } catch (error) {
+          console.warn('[CourtAPI] cloud AI verdict failed, fallback', error);
         }
-      } catch (error) {
-        console.warn('[CourtAPI] cloud AI verdict failed, fallback', error);
       }
+    } catch (error) {
+      console.warn('[CourtAPI] cloud module load failed, fallback', error);
     }
 
     // 2. 降级到自建后端，再降级到本地规则

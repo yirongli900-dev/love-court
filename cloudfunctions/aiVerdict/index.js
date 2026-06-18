@@ -2,12 +2,13 @@
 // 接收案件上下文，调用 DeepSeek API 生成娱乐裁决
 // API Key 从云函数环境变量 DEEPSEEK_API_KEY 读取（不暴露在前端）
 const cloud = require('wx-server-sdk');
+const fetch = require('node-fetch');
 const {
   buildVerdict,
   normalizeAiVerdict,
   VERDICT_PROMPT_SYSTEM,
   buildVerdictUserPrompt,
-} = require('../_common/verdict-builder');
+} = require('./verdict-builder');
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 

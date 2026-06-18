@@ -1,31 +1,58 @@
 // AI 追问生成云函数
 // 接收案件上下文，生成 AI 追问问题
-// 先尝试关键词规则匹配（节省成本），未命中时再调用 AI
+// 策略：规则匹配提供方向 → AI 在规则基础上做个性化优化（平衡成本与体验）
 const cloud = require('wx-server-sdk');
+const fetch = require('node-fetch');
 const {
   buildQuestion,
   QUESTION_PROMPT_SYSTEM,
   buildQuestionUserPrompt,
-} = require('../_common/verdict-builder');
+} = require('./verdict-builder');
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 
-// 规则匹配命中标记
+// 规则匹配：确定问题方向（用于引导 AI，不直接返回）
 function matchRuleQuestion(item) {
   const text = `${item.title || ''} ${item.plaintiffStatement || ''} ${item.defendantStatement || ''}`;
   if (/已读|不回|消息|微信|回复/.test(text)) {
-    return "请双方分别说明：消息没有及时回复时，是否有提前说明忙碌状态？对方通常能接受多久不回复？";
+    return {
+      direction: '消息回复',
+      hint: '请围绕「消息回复的预期」和「忙碌时的报备习惯」展开追问',
+    };
   }
   if (/纪念日|生日|节日|礼物/.test(text)) {
-    return "请双方分别说明：这个日子的重要性是否提前表达过？是否存在补救行为？";
+    return {
+      direction: '重要日子',
+      hint: '请围绕「重要日子的预期表达」和「遗忘后的补救行为」展开追问',
+    };
   }
   if (/游戏|开黑|排位|电脑/.test(text)) {
-    return "请双方分别说明：游戏安排是否影响了约定时间？有没有提前沟通优先级？";
+    return {
+      direction: '游戏与约定',
+      hint: '请围绕「游戏与约定时间的冲突」和「优先级沟通」展开追问',
+    };
   }
   if (/奶茶|外卖|吃|饭|零食/.test(text)) {
-    return "请双方分别说明：这份食物原本归谁？有没有出现未经同意就处置的情况？";
+    return {
+      direction: '食物归属',
+      hint: '请围绕「食物归属权」和「未经同意处置」展开追问',
+    };
   }
   return null;
+}
+
+function buildOptimizedPrompt(item, rule) {
+  const ruleHint = rule ? `\n[规则提示] ${rule.hint}` : '';
+  return [
+    `案件：${item.title}`,
+    `原告${item.plaintiffName || ''}陈述：${item.plaintiffStatement || '（暂无）'}`,
+    `被告${item.defendantName || ''}陈述：${item.defendantStatement || '（暂无）'}`,
+    ruleHint,
+    '请基于以上案件，生成一句让双方分别反思的追问（30字内），要求：',
+    '1. 聚焦本案最核心的争议点',
+    '2. 避免指责，温和引导反思',
+    '3. 只输出一句问题，不要解释，不要使用 Markdown',
+  ].join('\n');
 }
 
 exports.main = async (event, context) => {
@@ -36,23 +63,15 @@ exports.main = async (event, context) => {
     return { ok: false, error: '案件信息不完整，需要 title' };
   }
 
-  // 1. 先尝试关键词规则匹配（节省成本，不调用 AI）
-  const ruleQuestion = matchRuleQuestion(item);
-  if (ruleQuestion) {
-    return {
-      ok: true,
-      question: ruleQuestion,
-      provider: 'local-rules',
-    };
-  }
-
-  // 2. 未命中规则，使用默认规则问题
+  // 1. 先做规则匹配，获取问题方向（不直接返回）
+  const rule = matchRuleQuestion(item);
   const defaultQuestion = buildQuestion(item);
 
-  // 3. 检查 API Key 是否配置
+  // 2. 检查 API Key 是否配置
   const apiKey = process.env.DEEPSEEK_API_KEY;
   const model = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
 
+  // API Key 未配置：返回规则兜底问题
   if (!apiKey) {
     return {
       ok: true,
@@ -62,8 +81,9 @@ exports.main = async (event, context) => {
     };
   }
 
-  // 4. 调用 AI 生成更精准的追问
+  // 3. 调用 AI 基于规则方向做个性化优化
   try {
+    const userPrompt = buildOptimizedPrompt(item, rule);
     const response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
@@ -74,7 +94,7 @@ exports.main = async (event, context) => {
         model,
         messages: [
           { role: 'system', content: QUESTION_PROMPT_SYSTEM },
-          { role: 'user', content: buildQuestionUserPrompt(item) },
+          { role: 'user', content: userPrompt },
         ],
         temperature: 0.8,
         stream: false,
@@ -103,6 +123,8 @@ exports.main = async (event, context) => {
       question,
       provider: 'deepseek',
       model,
+      ruleMatched: Boolean(rule),
+      ruleDirection: rule?.direction || null,
     };
   } catch (error) {
     console.error('[aiQuestion] error', error?.message || error);
