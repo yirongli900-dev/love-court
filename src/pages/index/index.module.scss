@@ -1,0 +1,373 @@
+@use '@/styles/variables.scss' as *;
+
+.container {
+  min-height: 100vh;
+  padding: 32rpx;
+  padding-top: calc(32rpx + env(safe-area-inset-top, 0rpx));
+  padding-bottom: calc(64rpx + env(safe-area-inset-bottom, 0rpx));
+  background: linear-gradient(180deg, #f7f2ff 0%, $color-bg-page 48%, #fff7f0 100%);
+}
+
+.networkHint {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 16rpx;
+  padding: 16rpx 24rpx;
+  border-radius: $radius-lg;
+  background: rgba(255, 125, 0, 0.12);
+  border: 2rpx solid rgba(255, 125, 0, 0.24);
+}
+
+.networkHintText {
+  display: block;
+  font-size: $font-size-xs;
+  line-height: $line-height-loose;
+  color: #9a5a00;
+  text-align: center;
+}
+
+.loadingCard,
+.errorCard {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 24rpx;
+  padding: 48rpx 32rpx;
+  border-radius: 28rpx;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: $shadow-card;
+  text-align: center;
+}
+
+.loadingText {
+  display: block;
+  font-size: $font-size-md;
+  color: $color-text-secondary;
+  line-height: $line-height-loose;
+}
+
+.errorTitle {
+  display: block;
+  margin-bottom: 24rpx;
+  font-size: $font-size-md;
+  color: $color-error;
+  line-height: $line-height-loose;
+}
+
+.hero,
+.statusCard,
+.formCard,
+.questionCard,
+.verdictCard {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 24rpx;
+  padding: 32rpx;
+  border-radius: 28rpx;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: $shadow-card;
+}
+
+.hero {
+  padding-top: 48rpx;
+  background: linear-gradient(135deg, rgba(124, 77, 255, 0.16), rgba(255, 125, 0, 0.1));
+}
+
+.badge {
+  display: inline-flex;
+  padding: 8rpx 20rpx;
+  border-radius: $radius-round;
+  background: rgba(124, 77, 255, 0.12);
+  color: $color-primary-dark;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+}
+
+.title {
+  display: block;
+  margin-top: 24rpx;
+  font-size: 48rpx;
+  line-height: $line-height-tight;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+}
+
+.desc {
+  display: block;
+  margin-top: 16rpx;
+  font-size: $font-size-md;
+  line-height: $line-height-loose;
+  color: $color-text-secondary;
+}
+
+.caseNo,
+.sectionTitle,
+.verdictTitle {
+  display: block;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+}
+
+.status {
+  display: block;
+  margin-top: 12rpx;
+  font-size: $font-size-sm;
+  line-height: $line-height-loose;
+  color: $color-text-secondary;
+}
+
+.roleRow {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 24rpx;
+}
+
+.roleButton,
+.roleActive {
+  flex: 1;
+  height: 72rpx;
+  border-radius: $radius-button;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  transition: all $transition-base;
+}
+
+.roleButton {
+  color: $color-text-secondary;
+  background: $color-bg-hover;
+}
+
+.roleActive {
+  color: $color-text-white;
+  background: linear-gradient(135deg, $color-primary, $color-primary-light);
+}
+
+.input,
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 20rpx;
+  padding: 0 24rpx;
+  border-radius: $radius-lg;
+  border: 2rpx solid $color-border;
+  background: #fbf9ff;
+  color: $color-text-primary;
+  font-size: $font-size-md;
+}
+
+.input {
+  height: 88rpx;
+}
+
+.textarea {
+  min-height: 176rpx;
+  padding-top: 20rpx;
+  line-height: $line-height-loose;
+}
+
+.questionCard {
+  border: 2rpx solid rgba(124, 77, 255, 0.16);
+}
+
+.questionText {
+  display: block;
+  margin-top: 16rpx;
+  padding: 24rpx;
+  border-radius: $radius-lg;
+  background: rgba(124, 77, 255, 0.08);
+  color: $color-primary-dark;
+  font-size: $font-size-sm;
+  line-height: $line-height-loose;
+}
+
+.actionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16rpx;
+  margin-bottom: 24rpx;
+}
+
+.primaryButton,
+.secondaryButton,
+.primaryButtonSmall,
+.secondaryButtonSmall {
+  @include button-reset;
+  min-width: 0;
+  height: 80rpx;
+  border-radius: $radius-button;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  transition: all $transition-base;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+
+  &::after {
+    display: none;
+  }
+
+  &:active {
+    opacity: 0.9;
+    transform: scale(0.98);
+  }
+}
+
+.buttonInner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 0 16rpx;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.primaryButton {
+  grid-column: span 2;
+  background: linear-gradient(135deg, $color-primary, $color-primary-light);
+  border: 2rpx solid transparent;
+}
+
+.secondaryButton {
+  background: $color-bg-card;
+  border: 2rpx solid $color-border;
+}
+
+.primaryButtonSmall,
+.secondaryButtonSmall {
+  flex: 1;
+  height: 72rpx;
+}
+
+.primaryButtonSmall {
+  background: linear-gradient(135deg, $color-primary, $color-primary-light);
+  border: 2rpx solid transparent;
+}
+
+.secondaryButtonSmall {
+  background: rgba(124, 77, 255, 0.08);
+  border: 2rpx solid rgba(124, 77, 255, 0.14);
+}
+
+.primaryButtonText {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-text-white;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.secondaryButtonText {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  color: $color-primary-dark;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.verdictCard {
+  position: relative;
+  min-height: 520rpx;
+  transition: transform $transition-slow;
+  transform-style: preserve-3d;
+}
+
+.flipped {
+  transform: rotateY(180deg);
+}
+
+.cardFaceFront,
+.cardFaceBack {
+  box-sizing: border-box;
+  width: 100%;
+  backface-visibility: hidden;
+}
+
+.cardFaceBack {
+  position: absolute;
+  inset: 32rpx;
+  transform: rotateY(180deg);
+  overflow-y: auto;
+}
+
+.verdictCase {
+  display: block;
+  margin-top: 12rpx;
+  font-size: $font-size-xl;
+  font-weight: $font-weight-bold;
+  color: $color-primary-dark;
+  @include text-ellipsis;
+}
+
+.ratio {
+  display: block;
+  margin-top: 24rpx;
+  padding: 24rpx;
+  border-radius: $radius-lg;
+  background: linear-gradient(135deg, rgba(124, 77, 255, 0.12), rgba(255, 125, 0, 0.1));
+  color: $color-text-primary;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-bold;
+  text-align: center;
+}
+
+.reason,
+.penalty,
+.provider,
+.backText {
+  display: block;
+  margin-top: 18rpx;
+  font-size: $font-size-sm;
+  line-height: $line-height-loose;
+  color: $color-text-secondary;
+}
+
+.penalty {
+  padding: 20rpx;
+  border-radius: $radius-lg;
+  background: #fff7e8;
+  color: #9a5a00;
+}
+
+.provider {
+  color: $color-text-tertiary;
+  font-size: $font-size-xs;
+  text-align: center;
+}
+
+.verdictActions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 28rpx;
+}
+
+.backSubtitle {
+  display: block;
+  margin-top: 22rpx;
+  font-size: $font-size-md;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+}
+
+.reasonStep {
+  margin-top: 16rpx;
+  padding: 20rpx;
+  border-radius: $radius-lg;
+  background: #fbf9ff;
+  border: 2rpx solid $color-border;
+}
+
+.stepTitle {
+  display: block;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-bold;
+  color: $color-primary-dark;
+}
