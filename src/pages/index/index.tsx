@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Input, Text, Textarea, View } from '@tarojs/components';
 import Taro, { useDidShow, useLoad, useShareAppMessage } from '@tarojs/taro';
 import { courtApi } from '@/services/court';
+import { isCloudAvailable, pingHealthCheck } from '@/services/cloud';
+import { isDevelopmentEnv } from '@/config/env';
 import type { CasePatch, CourtCase, UserRole } from '@/types/court';
 import {
   ANSWER_MAX_LENGTH,
@@ -248,6 +250,24 @@ const IndexPage: React.FC = () => {
     }
   };
 
+  // 调试入口：验证云开发连通性（仅开发模式 + 云可用时显示）
+  const testCloudConnection = async () => {
+    Taro.showLoading({ title: '测试中...', mask: true });
+    try {
+      const ok = await pingHealthCheck();
+      Taro.hideLoading();
+      if (ok) {
+        Taro.showToast({ title: '云连接正常', icon: 'success' });
+      } else {
+        Taro.showToast({ title: '云连接失败，请检查云函数部署', icon: 'none' });
+      }
+    } catch (error) {
+      Taro.hideLoading();
+      const message = error instanceof Error ? error.message : '云连接异常';
+      Taro.showToast({ title: message, icon: 'none' });
+    }
+  };
+
   const goShare = () => {
     if (!caseData.id) {
       Taro.showToast({ title: '案件尚未创建', icon: 'none' });
@@ -451,6 +471,16 @@ const IndexPage: React.FC = () => {
               </View>
             </Button>
           </View>
+
+          {isDevelopmentEnv && isCloudAvailable() && (
+            <View className={styles.actionGrid}>
+              <Button className={styles.secondaryButton} hoverClass="none" onClick={testCloudConnection}>
+                <View className={styles.buttonInner}>
+                  <Text className={styles.secondaryButtonText}>测试云连接</Text>
+                </View>
+              </Button>
+            </View>
+          )}
 
           <View className={frontClassName}>
             <View className={styles.cardFaceFront}>

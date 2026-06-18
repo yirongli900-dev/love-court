@@ -1,5 +1,6 @@
 {
   "compileType": "miniprogram",
+  "cloudfunctionRoot": "cloudfunctions/",
   "miniprogramRoot": "dist/",
   "projectname": "love-court-miniapp",
   "description": "AI 情侣法庭微信小程序",

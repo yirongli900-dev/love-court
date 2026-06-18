@@ -25,3 +25,6 @@ data/cases.json
 data/poster-cache/
 data/backups/
 data/drill-tmp/
+
+# 云函数本地依赖（保留源码但忽略 node_modules）
+cloudfunctions/**/node_modules/

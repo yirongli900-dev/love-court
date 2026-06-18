@@ -32,7 +32,9 @@
     "dev:rn": "npm run build:rn -- --watch",
     "dev:qq": "npm run build:qq -- --watch",
     "dev:jd": "npm run build:jd -- --watch",
-    "dev:quickapp": "npm run build:quickapp -- --watch"
+    "dev:quickapp": "npm run build:quickapp -- --watch",
+    "deploy:cloud": "echo 云函数请使用微信开发者工具右键 cloudfunctions/healthCheck 目录 - 上传并部署：云端安装依赖（不上传 node_modules）",
+    "cloud:tips": "echo 云函数部署请参考 docs/wechat-cloud-architecture/CLOUD_SETUP_GUIDE.md"
   },
   "postinstall": "taro build --type weapp --mode development",
   "browserslist": [
