@@ -12,6 +12,7 @@ export interface BusinessSession {
 
 const SESSION_STORAGE_KEY = 'love-court-business-session';
 const CLIENT_ID_STORAGE_KEY = 'love-court-client-id';
+let bootstrapPromise: Promise<string> | null = null;
 
 function readSession() {
   try {
@@ -50,6 +51,7 @@ async function exchangeWechatCode(code: string) {
     url: buildApiUrl(authLoginPath),
     method: 'POST',
     data: { code },
+    timeout: 5000,
     header: {
       'Content-Type': 'application/json',
     },
@@ -81,7 +83,7 @@ export function clearBusinessSession() {
   Taro.removeStorageSync(refreshTokenKey);
 }
 
-export async function bootstrapBusinessSession() {
+async function createBusinessSession() {
   if (!authEnabled || process.env.TARO_ENV !== 'weapp') {
     return getBusinessToken();
   }
@@ -103,4 +105,13 @@ export async function bootstrapBusinessSession() {
     console.warn('[Auth] bootstrap session failed', error);
     return getBusinessToken();
   }
+}
+
+export function bootstrapBusinessSession() {
+  if (!bootstrapPromise) {
+    bootstrapPromise = createBusinessSession().finally(() => {
+      bootstrapPromise = null;
+    });
+  }
+  return bootstrapPromise;
 }
