@@ -24,6 +24,9 @@ export const authLoginPath = process.env.TARO_APP_AUTH_LOGIN_PATH || '/api/auth/
 export const businessTokenKey = process.env.TARO_APP_TOKEN_KEY || 'love-court-business-token';
 export const refreshTokenKey = process.env.TARO_APP_REFRESH_TOKEN_KEY || 'love-court-refresh-token';
 
+export const cloudEnvId = process.env.TARO_APP_CLOUD_ENV || 'cloud1-d7g0sqy2891bd103a';
+export const cloudEnabled = (process.env.TARO_APP_CLOUD_ENABLED || 'false') !== 'false';
+
 export function buildApiUrl(path: string) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   return `${apiBaseUrl}${normalizedPath}`;

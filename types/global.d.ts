@@ -31,5 +31,9 @@ declare namespace NodeJS {
     TARO_APP_TOKEN_KEY?: string;
     /** 刷新 token 的本地缓存 key */
     TARO_APP_REFRESH_TOKEN_KEY?: string;
+    /** 云开发环境 ID */
+    TARO_APP_CLOUD_ENV?: string;
+    /** 是否启用云开发 */
+    TARO_APP_CLOUD_ENABLED?: string;
   }
 }

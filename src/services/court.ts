@@ -205,9 +205,31 @@ export const courtApi = {
     if (isLocalCase(caseId)) return Promise.resolve(localAction());
     return withLocalFallback(() => request<{ case: CourtCase }>(`/api/cases/${encodeURIComponent(caseId)}/statements`, 'PATCH', patch), localAction);
   },
-  askQuestion: (caseId: string) => {
+  askQuestion: async (caseId: string) => {
     const localAction = () => ({ case: updateLocalCase(caseId, (item) => ({ ...item, question: buildLocalQuestion(item), updatedAt: new Date().toISOString() })) });
-    if (isLocalCase(caseId)) return Promise.resolve(localAction());
+    if (isLocalCase(caseId)) return localAction();
+
+    // 1. 云函数优先（动态 import 隔离，避免顶层加载失败）
+    try {
+      const { isCloudAvailable } = await import('@/services/cloud');
+      if (isCloudAvailable()) {
+        try {
+          const { generateQuestionByCloud } = await import('@/services/cloud-ai');
+          const caseData = getLocalCase(caseId);
+          if (caseData) {
+            const question = await generateQuestionByCloud(caseData);
+            const updated = updateLocalCase(caseId, (item) => ({ ...item, question, updatedAt: new Date().toISOString() }));
+            return { case: updated };
+          }
+        } catch (error) {
+          console.warn('[CourtAPI] cloud AI question failed, fallback', error);
+        }
+      }
+    } catch (error) {
+      console.warn('[CourtAPI] cloud module load failed, fallback', error);
+    }
+
+    // 2. 降级到自建后端，再降级到本地规则
     return withLocalFallback(() => request<{ case: CourtCase }>(`/api/cases/${encodeURIComponent(caseId)}/question`, 'POST'), localAction);
   },
   archiveCase: (caseId: string) => {
@@ -230,9 +252,31 @@ export const courtApi = {
     if (isLocalCase(caseId)) return Promise.resolve(localAction());
     return withLocalFallback<{ case: CourtCase }>(() => request<{ ok?: boolean }>(`/api/cases/${encodeURIComponent(caseId)}/purge`, 'POST').then(() => ({ case: getLocalCase(caseId) })), localAction);
   },
-  buildVerdict: (caseId: string) => {
+  buildVerdict: async (caseId: string) => {
     const localAction = () => ({ case: updateLocalCase(caseId, (item) => ({ ...item, verdict: buildLocalVerdict(item), updatedAt: new Date().toISOString() })) });
-    if (isLocalCase(caseId)) return Promise.resolve(localAction());
+    if (isLocalCase(caseId)) return localAction();
+
+    // 1. 云函数优先（动态 import 隔离，避免顶层加载失败）
+    try {
+      const { isCloudAvailable } = await import('@/services/cloud');
+      if (isCloudAvailable()) {
+        try {
+          const { generateVerdictByCloud } = await import('@/services/cloud-ai');
+          const caseData = getLocalCase(caseId);
+          if (caseData) {
+            const verdict = await generateVerdictByCloud(caseData);
+            const updated = updateLocalCase(caseId, (item) => ({ ...item, verdict, updatedAt: new Date().toISOString() }));
+            return { case: updated };
+          }
+        } catch (error) {
+          console.warn('[CourtAPI] cloud AI verdict failed, fallback', error);
+        }
+      }
+    } catch (error) {
+      console.warn('[CourtAPI] cloud module load failed, fallback', error);
+    }
+
+    // 2. 降级到自建后端，再降级到本地规则
     return withLocalFallback(() => request<{ case: CourtCase }>(`/api/cases/${encodeURIComponent(caseId)}/verdict`, 'POST'), localAction);
   },
   getShareImageUrl: (caseId: string) => buildApiUrl(`/api/cases/${encodeURIComponent(caseId)}/share-image`),
