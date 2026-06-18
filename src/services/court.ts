@@ -1,6 +1,6 @@
 import Taro from '@tarojs/taro';
 import { buildApiUrl } from '@/config/env';
-import { clearBusinessSession, getBusinessAuthHeader, getClientIdentityHeader } from '@/services/auth';
+import { bootstrapBusinessSession, clearBusinessSession, getBusinessAuthHeader, getClientIdentityHeader } from '@/services/auth';
 import type { CasePatch, CourtCase, JoinCaseInput, VerdictRatio, UserRole } from '@/types/court';
 
 const LOCAL_CASES_KEY = 'love-court-miniapp-cases';
@@ -18,6 +18,7 @@ interface ApiResponse<T> {
 }
 
 async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET', data?: unknown): Promise<T> {
+  await bootstrapBusinessSession();
   const url = buildApiUrl(path);
   console.info('[CourtAPI] request', { path, method });
   try {
@@ -25,6 +26,7 @@ async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' | 'DELE
       url,
       method,
       data,
+      timeout: 8000,
       header: {
         'Content-Type': 'application/json',
         ...getBusinessAuthHeader(),
@@ -313,4 +315,3 @@ export const courtApi = {
     },
   ),
 };
-
