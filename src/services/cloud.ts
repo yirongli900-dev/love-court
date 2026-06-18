@@ -21,6 +21,8 @@ export class CloudDevelopmentNotAvailableError extends Error {
   }
 }
 
+let cloudInitialized = false;
+
 /**
  * 检查云开发是否可用
  * 条件：当前为微信小程序环境 + 云开发已启用 + wx.cloud 全局对象存在
@@ -48,6 +50,7 @@ export function isCloudAvailable(): boolean {
  * 在小程序入口调用，失败不抛错只输出日志
  */
 export function initCloudDevelopment(): void {
+  if (cloudInitialized) return;
   if (Taro.getEnv() !== Taro.ENV_TYPE.WEAPP) {
     console.info('[Cloud] skip init: not in weapp env');
     return;
@@ -65,6 +68,7 @@ export function initCloudDevelopment(): void {
       env: cloudEnvId,
       traceUser: true,
     });
+    cloudInitialized = true;
     console.info('[Cloud] init success', { env: cloudEnvId });
   } catch (error) {
     console.error('[Cloud] init failed', error);
@@ -82,6 +86,7 @@ export async function callCloudFunction<T = unknown>(name: string, data?: Record
   if (!isCloudAvailable()) {
     throw new CloudDevelopmentNotAvailableError();
   }
+  initCloudDevelopment();
   try {
     const response = await wx.cloud.callFunction({
       name,
