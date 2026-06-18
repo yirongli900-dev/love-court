@@ -68,10 +68,44 @@ exports.main = async (event, context) => {
 
     const payload = await response.json();
     const content = payload?.choices?.[0]?.message?.content;
-    const parsed = normalizeAiVerdict(JSON.parse(content), item);
+
+    // JSON 解析容错：AI 返回可能为空、带 Markdown 包裹、或非 JSON 字符串
+    if (!content) {
+      console.error('[aiVerdict] empty content from deepseek', { payload });
+      return {
+        ok: true,
+        verdict: buildVerdict(item),
+        provider: 'local-rules-fallback',
+        model: null,
+      };
+    }
+
+    // 去除可能的 Markdown 代码块包裹（如 ```json{...}```）
+    const cleanedContent = content
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+
+    let parsed;
+    try {
+      parsed = JSON.parse(cleanedContent);
+    } catch (e) {
+      console.error('[aiVerdict] json parse failed', {
+        message: e?.message || String(e),
+        contentPreview: String(cleanedContent).slice(0, 200),
+      });
+      return {
+        ok: true,
+        verdict: buildVerdict(item),
+        provider: 'local-rules-fallback',
+        model: null,
+      };
+    }
+
+    const normalized = normalizeAiVerdict(parsed, item);
     return {
       ok: true,
-      verdict: parsed,
+      verdict: normalized,
       provider: 'deepseek',
       model,
     };
