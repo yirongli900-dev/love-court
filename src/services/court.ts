@@ -1,5 +1,5 @@
 import Taro from '@tarojs/taro';
-import { buildApiUrl, isDevelopmentEnv } from '@/config/env';
+import { buildApiUrl } from '@/config/env';
 import { clearBusinessSession, getBusinessAuthHeader, getClientIdentityHeader } from '@/services/auth';
 import type { CasePatch, CourtCase, JoinCaseInput, VerdictRatio, UserRole } from '@/types/court';
 
@@ -159,10 +159,7 @@ function buildLocalVerdict(item: CourtCase) {
 }
 
 async function withLocalFallback<T>(remoteAction: () => Promise<T>, localAction: () => T): Promise<T> {
-  // 开发环境无后端服务时，直接走本地兜底，避免每次请求都超时等待
-  if (isDevelopmentEnv) {
-    return localAction();
-  }
+  // 云函数优先由上层 shouldUseCloud 处理，此处为 HTTP 后端 + 本地兜底
   try {
     return await remoteAction();
   } catch (error: any) {
@@ -196,9 +193,8 @@ async function callCaseApi<T = unknown>(action: string, data?: Record<string, un
   return result as unknown as T;
 }
 
-// 判断是否走云函数（非开发环境 + 非 local-* 案件 + 云可用）
+// 判断是否走云函数（非 local-* 案件 + 云可用即可，开发环境也走云函数）
 async function shouldUseCloud(caseId?: string): Promise<boolean> {
-  if (isDevelopmentEnv) return false;
   if (caseId && caseId.startsWith('local-')) return false;
   const { isCloudAvailable } = await import('@/services/cloud');
   return isCloudAvailable();
@@ -279,27 +275,41 @@ export const courtApi = {
     const localAction = () => ({ case: updateLocalCase(caseId, (item) => ({ ...item, question: buildLocalQuestion(item), updatedAt: new Date().toISOString() })) });
     if (isLocalCase(caseId)) return localAction();
 
-    // 1. 云函数优先（动态 import 隔离，避免顶层加载失败）
+    // 1. 云函数优先
+    if (await shouldUseCloud(caseId)) {
+      try {
+        // 先通过 caseApi 获取案件数据（云端案件不在本地存储中）
+        const caseResult = await callCaseApi<{ case: CourtCase }>('get', { caseId });
+        const caseData = caseResult.case;
+        if (caseData) {
+          const { generateQuestionByCloud } = await import('@/services/cloud-ai');
+          const question = await generateQuestionByCloud(caseData);
+          // 通过 caseApi 更新案件
+          const updated = await callCaseApi<{ case: CourtCase }>('update', { caseId, patch: { question } });
+          return updated;
+        }
+      } catch (error) {
+        console.warn('[CourtAPI] cloud AI question failed, fallback', error);
+      }
+    }
+
+    // 2. 降级：尝试本地案件 + 云 AI，再降级到 HTTP 后端
     try {
       const { isCloudAvailable } = await import('@/services/cloud');
       if (isCloudAvailable()) {
-        try {
+        const caseData = getLocalCase(caseId);
+        if (caseData) {
           const { generateQuestionByCloud } = await import('@/services/cloud-ai');
-          const caseData = getLocalCase(caseId);
-          if (caseData) {
-            const question = await generateQuestionByCloud(caseData);
-            const updated = updateLocalCase(caseId, (item) => ({ ...item, question, updatedAt: new Date().toISOString() }));
-            return { case: updated };
-          }
-        } catch (error) {
-          console.warn('[CourtAPI] cloud AI question failed, fallback', error);
+          const question = await generateQuestionByCloud(caseData);
+          const updated = updateLocalCase(caseId, (item) => ({ ...item, question, updatedAt: new Date().toISOString() }));
+          return { case: updated };
         }
       }
     } catch (error) {
-      console.warn('[CourtAPI] cloud module load failed, fallback', error);
+      console.warn('[CourtAPI] cloud AI question local fallback failed', error);
     }
 
-    // 2. 降级到自建后端，再降级到本地规则
+    // 3. 降级到自建后端，再降级到本地规则
     return withLocalFallback(() => request<{ case: CourtCase }>(`/api/cases/${encodeURIComponent(caseId)}/question`, 'POST'), localAction);
   },
   archiveCase: (caseId: string) => {
@@ -326,27 +336,41 @@ export const courtApi = {
     const localAction = () => ({ case: updateLocalCase(caseId, (item) => ({ ...item, verdict: buildLocalVerdict(item), updatedAt: new Date().toISOString() })) });
     if (isLocalCase(caseId)) return localAction();
 
-    // 1. 云函数优先（动态 import 隔离，避免顶层加载失败）
+    // 1. 云函数优先
+    if (await shouldUseCloud(caseId)) {
+      try {
+        // 先通过 caseApi 获取案件数据（云端案件不在本地存储中）
+        const caseResult = await callCaseApi<{ case: CourtCase }>('get', { caseId });
+        const caseData = caseResult.case;
+        if (caseData) {
+          const { generateVerdictByCloud } = await import('@/services/cloud-ai');
+          const verdict = await generateVerdictByCloud(caseData);
+          // 通过 caseApi 更新案件
+          const updated = await callCaseApi<{ case: CourtCase }>('update', { caseId, patch: { verdict } });
+          return updated;
+        }
+      } catch (error) {
+        console.warn('[CourtAPI] cloud AI verdict failed, fallback', error);
+      }
+    }
+
+    // 2. 降级：尝试本地案件 + 云 AI
     try {
       const { isCloudAvailable } = await import('@/services/cloud');
       if (isCloudAvailable()) {
-        try {
+        const caseData = getLocalCase(caseId);
+        if (caseData) {
           const { generateVerdictByCloud } = await import('@/services/cloud-ai');
-          const caseData = getLocalCase(caseId);
-          if (caseData) {
-            const verdict = await generateVerdictByCloud(caseData);
-            const updated = updateLocalCase(caseId, (item) => ({ ...item, verdict, updatedAt: new Date().toISOString() }));
-            return { case: updated };
-          }
-        } catch (error) {
-          console.warn('[CourtAPI] cloud AI verdict failed, fallback', error);
+          const verdict = await generateVerdictByCloud(caseData);
+          const updated = updateLocalCase(caseId, (item) => ({ ...item, verdict, updatedAt: new Date().toISOString() }));
+          return { case: updated };
         }
       }
     } catch (error) {
-      console.warn('[CourtAPI] cloud module load failed, fallback', error);
+      console.warn('[CourtAPI] cloud AI verdict local fallback failed', error);
     }
 
-    // 2. 降级到自建后端，再降级到本地规则
+    // 3. 降级到自建后端，再降级到本地规则
     return withLocalFallback(() => request<{ case: CourtCase }>(`/api/cases/${encodeURIComponent(caseId)}/verdict`, 'POST'), localAction);
   },
   getShareImageUrl: (caseId: string) => buildApiUrl(`/api/cases/${encodeURIComponent(caseId)}/share-image`),

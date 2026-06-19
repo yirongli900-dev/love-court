@@ -6,7 +6,7 @@
   "description": "AI 情侣法庭微信小程序",
   "appid": "wx9ce4b88be25add30",
   "setting": {
-    "urlCheck": true,
+    "urlCheck": false,
     "es6": true,
     "enhance": false,
     "compileHotReLoad": false,
