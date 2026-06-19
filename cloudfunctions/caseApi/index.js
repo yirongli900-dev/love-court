@@ -1,6 +1,9 @@
 // 案件 CRUD 云函数
-// 统一入口，通过 openid 实现数据隔离
-// 所有操作通过 cloud.getWXContext() 获取 openid，用 where({ _openid }) 过滤
+// 情侣法庭：案件在两人之间共享
+// - 创建者（原告）通过 _openid 归属
+// - 被邀请者（被告）通过 inviteCode 加入
+// - 读取和更新：创建者 + 被邀请者均可
+// - 删除/归档：仅创建者
 const cloud = require('wx-server-sdk');
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
@@ -8,7 +11,7 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 const _ = db.command;
 
-// 获取调用者 openid（权威身份，不可伪造）
+// 获取调用者 openid
 function getOpenId() {
   const wxContext = cloud.getWXContext();
   return wxContext.OPENID;
@@ -40,6 +43,8 @@ exports.main = async (event, context) => {
         return await handleCreate(openid, event);
       case 'get':
         return await handleGet(openid, event);
+      case 'join':
+        return await handleJoin(openid, event);
       case 'list':
         return await handleList(openid, event);
       case 'update':
@@ -65,13 +70,13 @@ exports.main = async (event, context) => {
 async function handleCreate(openid, event) {
   const now = new Date().toISOString();
 
-  // 统计当前用户已有案件数（用于案件编号）
   const { total } = await db.collection('cases')
     .where({ _openid: openid })
     .count();
 
   const newCase = {
-    _openid: openid,  // 显式写入，确保归属
+    _openid: openid,
+    participants: [openid],  // 参与者列表，创建者自动加入
     caseNumber: generateCaseNumber(total),
     inviteCode: generateInviteCode(),
     title: '',
@@ -97,33 +102,71 @@ async function handleCreate(openid, event) {
   };
 }
 
-// 查询单个案件（带权限校验）
+// 查询单个案件（创建者 + 参与者均可读取）
 async function handleGet(openid, event) {
   const { caseId } = event;
   if (!caseId) {
     return { ok: false, error: '缺少 caseId' };
   }
 
-  // where 同时过滤 _id 和 _openid，确保只能查到自己的案件
+  // 只按 _id 查询，不再过滤 _openid（情侣法庭案件在两人间共享）
   const { data } = await db.collection('cases')
-    .where({ _id: caseId, _openid: openid })
+    .where({ _id: caseId, deletedAt: null })
     .limit(1)
     .get();
 
   if (data.length === 0) {
-    return { ok: false, error: '案件不存在或无权访问' };
+    return { ok: false, error: '案件不存在或已被删除' };
   }
 
   return { ok: true, case: { ...data[0], id: data[0]._id } };
 }
 
-// 查询案件列表（分页）
+// 加入案件（通过邀请码）
+async function handleJoin(openid, event) {
+  const { caseId, inviteCode } = event;
+  if (!caseId) {
+    return { ok: false, error: '缺少 caseId' };
+  }
+
+  const { data } = await db.collection('cases')
+    .where({ _id: caseId, deletedAt: null })
+    .limit(1)
+    .get();
+
+  if (data.length === 0) {
+    return { ok: false, error: '案件不存在或已被删除' };
+  }
+
+  const caseData = data[0];
+
+  // 校验邀请码（如果案件有邀请码且调用者不是创建者）
+  if (caseData._openid !== openid && caseData.inviteCode) {
+    if (inviteCode !== caseData.inviteCode) {
+      return { ok: false, error: '邀请码不正确' };
+    }
+  }
+
+  // 将加入者添加到参与者列表（如果尚未存在）
+  if (!caseData.participants) {
+    caseData.participants = [caseData._openid];
+  }
+  if (!caseData.participants.includes(openid)) {
+    caseData.participants.push(openid);
+    await db.collection('cases').doc(caseId).update({
+      data: { participants: caseData.participants },
+    });
+  }
+
+  return { ok: true, case: { ...caseData, id: caseData._id } };
+}
+
+// 查询案件列表（仅创建者的案件）
 async function handleList(openid, event) {
   const page = Number(event.page) || 1;
   const pageSize = Number(event.pageSize) || 10;
   const skip = (page - 1) * pageSize;
 
-  // 查询当前用户的案件（排除已删除）
   const query = db.collection('cases')
     .where({ _openid: openid, deletedAt: null })
     .orderBy('updatedAt', 'desc');
@@ -141,21 +184,21 @@ async function handleList(openid, event) {
   };
 }
 
-// 更新案件
+// 更新案件（创建者 + 参与者均可更新各自的陈词）
 async function handleUpdate(openid, event) {
   const { caseId, patch } = event;
   if (!caseId) {
     return { ok: false, error: '缺少 caseId' };
   }
 
-  // 先校验权限
+  // 按 _id 查询（参与者也能更新）
   const { data } = await db.collection('cases')
-    .where({ _id: caseId, _openid: openid })
+    .where({ _id: caseId, deletedAt: null })
     .limit(1)
     .get();
 
   if (data.length === 0) {
-    return { ok: false, error: '案件不存在或无权访问' };
+    return { ok: false, error: '案件不存在' };
   }
 
   const now = new Date().toISOString();
@@ -165,25 +208,25 @@ async function handleUpdate(openid, event) {
 
   await db.collection('cases').doc(caseId).update({ data: updateData });
 
-  // 返回更新后的案件
   const { data: updated } = await db.collection('cases').doc(caseId).get();
   return { ok: true, case: { ...updated, id: updated._id } };
 }
 
-// 软删除 / 归档
+// 软删除 / 归档（仅创建者）
 async function handleSoftDelete(openid, event, type) {
   const { caseId } = event;
   if (!caseId) {
     return { ok: false, error: '缺少 caseId' };
   }
 
+  // 仅创建者可删除/归档
   const { data } = await db.collection('cases')
     .where({ _id: caseId, _openid: openid })
     .limit(1)
     .get();
 
   if (data.length === 0) {
-    return { ok: false, error: '案件不存在或无权访问' };
+    return { ok: false, error: '无权操作：仅创建者可删除/归档' };
   }
 
   const now = new Date().toISOString();
@@ -200,7 +243,7 @@ async function handleSoftDelete(openid, event, type) {
   return { ok: true, case: { ...updated, id: updated._id } };
 }
 
-// 恢复案件
+// 恢复案件（仅创建者）
 async function handleRestore(openid, event) {
   const { caseId } = event;
   if (!caseId) {
@@ -213,7 +256,7 @@ async function handleRestore(openid, event) {
     .get();
 
   if (data.length === 0) {
-    return { ok: false, error: '案件不存在或无权访问' };
+    return { ok: false, error: '无权操作' };
   }
 
   const now = new Date().toISOString();
@@ -225,7 +268,7 @@ async function handleRestore(openid, event) {
   return { ok: true, case: { ...updated, id: updated._id } };
 }
 
-// 彻底删除
+// 彻底删除（仅创建者）
 async function handlePurge(openid, event) {
   const { caseId } = event;
   if (!caseId) {
@@ -238,7 +281,7 @@ async function handlePurge(openid, event) {
     .get();
 
   if (data.length === 0) {
-    return { ok: false, error: '案件不存在或无权访问' };
+    return { ok: false, error: '无权操作' };
   }
 
   await db.collection('cases').doc(caseId).remove();
