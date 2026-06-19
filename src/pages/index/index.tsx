@@ -44,7 +44,7 @@ const LOCKED_ROLE_KEY = 'love-court-locked-role';
 
 const getStoredLockedRole = (): UserRole | null => {
   try {
-    const stored = localStorage.getItem(LOCKED_ROLE_KEY);
+    const stored = Taro.getStorageSync<string>(LOCKED_ROLE_KEY);
     if (stored === 'plaintiff' || stored === 'defendant') return stored;
   } catch { /* ignore */ }
   return null;
@@ -61,10 +61,10 @@ const IndexPageInner: React.FC = () => {
   const [weakNetwork, setWeakNetwork] = useState(false);
   const [cloudReady, setCloudReady] = useState(false);
 
-  // 持久化 lockedRole 到 localStorage
+  // 持久化 lockedRole 到小程序存储
   useEffect(() => {
     if (lockedRole) {
-      try { localStorage.setItem(LOCKED_ROLE_KEY, lockedRole); } catch { /* ignore */ }
+      try { Taro.setStorageSync(LOCKED_ROLE_KEY, lockedRole); } catch { /* ignore */ }
     }
   }, [lockedRole]);
 

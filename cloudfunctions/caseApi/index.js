@@ -1,9 +1,10 @@
 // 案件 CRUD 云函数
 // 情侣法庭：案件在两人之间共享
 // - 创建者（原告）通过 _openid 归属
-// - 被邀请者（被告）通过 inviteCode 加入
-// - 读取和更新：创建者 + 被邀请者均可
+// - 被邀请者（被告）通过 inviteCode 加入 participants 数组
+// - 读取和更新：创建者 + participants 均可
 // - 删除/归档：仅创建者
+// - 列表查询：返回用户创建或参与的所有案件
 const cloud = require('wx-server-sdk');
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
@@ -28,14 +29,24 @@ function generateInviteCode() {
   return Math.random().toString(16).slice(2, 8).toUpperCase();
 }
 
+// 验证用户是否有权访问案件（创建者或参与者）
+function hasCaseAccess(caseData, openid) {
+  if (!caseData) return false;
+  if (caseData._openid === openid) return true;
+  if (Array.isArray(caseData.participants) && caseData.participants.includes(openid)) return true;
+  return false;
+}
+
 exports.main = async (event, context) => {
   const openid = getOpenId();
 
   if (!openid) {
+    console.error('[caseApi] UNAUTHORIZED: no openid');
     return { ok: false, code: 'UNAUTHORIZED', error: '未获取到用户身份' };
   }
 
   const { action } = event;
+  console.info('[caseApi] action', { action, openid: openid.slice(0, 8) + '...' });
 
   try {
     switch (action) {
@@ -61,7 +72,7 @@ exports.main = async (event, context) => {
         return { ok: false, error: `未知 action: ${action}` };
     }
   } catch (error) {
-    console.error('[caseApi] error', { action, error: error?.message || error });
+    console.error('[caseApi] error', { action, openid: openid.slice(0, 8) + '...', error: error?.message || error });
     return { ok: false, error: error?.message || '操作失败' };
   }
 };
@@ -70,6 +81,7 @@ exports.main = async (event, context) => {
 async function handleCreate(openid, event) {
   const now = new Date().toISOString();
 
+  // 统计当前用户已有案件数（用于案件编号）
   const { total } = await db.collection('cases')
     .where({ _openid: openid })
     .count();
@@ -95,6 +107,7 @@ async function handleCreate(openid, event) {
   };
 
   const { _id } = await db.collection('cases').add({ data: newCase });
+  console.info('[caseApi] create success', { _id, openid: openid.slice(0, 8) + '...' });
 
   return {
     ok: true,
@@ -102,14 +115,14 @@ async function handleCreate(openid, event) {
   };
 }
 
-// 查询单个案件（创建者 + 参与者均可读取）
+// 查询单个案件（仅创建者或参与者可读取）
 async function handleGet(openid, event) {
   const { caseId } = event;
   if (!caseId) {
     return { ok: false, error: '缺少 caseId' };
   }
 
-  // 只按 _id 查询，不再过滤 _openid（情侣法庭案件在两人间共享）
+  // 按 _id 查询（不按 _openid 过滤，因为案件在两人间共享）
   const { data } = await db.collection('cases')
     .where({ _id: caseId, deletedAt: null })
     .limit(1)
@@ -119,7 +132,25 @@ async function handleGet(openid, event) {
     return { ok: false, error: '案件不存在或已被删除' };
   }
 
-  return { ok: true, case: { ...data[0], id: data[0]._id } };
+  const caseData = data[0];
+
+  // 权限校验：只有创建者或参与者才能读取
+  if (!hasCaseAccess(caseData, openid)) {
+    console.warn('[caseApi] get DENIED', {
+      caseId,
+      openid: openid.slice(0, 8) + '...',
+      caseOwner: caseData._openid?.slice(0, 8) + '...',
+    });
+    return { ok: false, error: '无权访问该案件' };
+  }
+
+  console.info('[caseApi] get success', {
+    caseId,
+    openid: openid.slice(0, 8) + '...',
+    participants: caseData.participants?.length || 0,
+  });
+
+  return { ok: true, case: { ...caseData, id: caseData._id } };
 }
 
 // 加入案件（通过邀请码）
@@ -140,39 +171,64 @@ async function handleJoin(openid, event) {
 
   const caseData = data[0];
 
-  // 校验邀请码（如果案件有邀请码且调用者不是创建者）
-  if (caseData._openid !== openid && caseData.inviteCode) {
-    if (inviteCode !== caseData.inviteCode) {
-      return { ok: false, error: '邀请码不正确' };
-    }
-  }
-
-  // 将加入者添加到参与者列表（如果尚未存在）
-  if (!caseData.participants) {
-    caseData.participants = [caseData._openid];
-  }
-  if (!caseData.participants.includes(openid)) {
-    caseData.participants.push(openid);
-    await db.collection('cases').doc(caseId).update({
-      data: { participants: caseData.participants },
+  // 如果已经是参与者，直接返回
+  if (hasCaseAccess(caseData, openid)) {
+    console.info('[caseApi] join already participant', {
+      caseId,
+      openid: openid.slice(0, 8) + '...',
     });
+    return { ok: true, case: { ...caseData, id: caseData._id } };
   }
 
-  return { ok: true, case: { ...caseData, id: caseData._id } };
+  // 校验邀请码
+  if (caseData.inviteCode && inviteCode !== caseData.inviteCode) {
+    console.warn('[caseApi] join inviteCode mismatch', {
+      caseId,
+      openid: openid.slice(0, 8) + '...',
+    });
+    return { ok: false, error: '邀请码不正确' };
+  }
+
+  // 将加入者添加到参与者列表
+  const participants = Array.isArray(caseData.participants) ? [...caseData.participants] : [caseData._openid];
+  participants.push(openid);
+
+  await db.collection('cases').doc(caseId).update({
+    data: { participants },
+  });
+
+  console.info('[caseApi] join success', {
+    caseId,
+    openid: openid.slice(0, 8) + '...',
+    participantsCount: participants.length,
+  });
+
+  return { ok: true, case: { ...caseData, participants, id: caseData._id } };
 }
 
-// 查询案件列表（仅创建者的案件）
+// 查询案件列表（用户创建的 + 用户参与的案件）
 async function handleList(openid, event) {
   const page = Number(event.page) || 1;
   const pageSize = Number(event.pageSize) || 10;
   const skip = (page - 1) * pageSize;
 
+  // 查询条件：创建者 OR 参与者（使用 participants 数组包含当前用户）
   const query = db.collection('cases')
-    .where({ _openid: openid, deletedAt: null })
+    .where(_.or([
+      { _openid: openid, deletedAt: null },
+      { participants: _.elemMatch(_.eq(openid)), deletedAt: null },
+    ]))
     .orderBy('updatedAt', 'desc');
 
   const { total } = await query.count();
   const { data } = await query.skip(skip).limit(pageSize).get();
+
+  console.info('[caseApi] list', {
+    openid: openid.slice(0, 8) + '...',
+    total,
+    page,
+    pageSize,
+  });
 
   return {
     ok: true,
@@ -184,11 +240,33 @@ async function handleList(openid, event) {
   };
 }
 
-// 更新案件（创建者 + 参与者均可更新各自的陈词）
+// 更新案件（仅创建者或参与者可更新，且只能更新自己角色的字段）
 async function handleUpdate(openid, event) {
   const { caseId, patch } = event;
   if (!caseId) {
     return { ok: false, error: '缺少 caseId' };
+  }
+
+  // 先获取案件，校验权限
+  const { data } = await db.collection('cases')
+    .where({ _id: caseId, deletedAt: null })
+    .limit(1)
+    .get();
+
+  if (data.length === 0) {
+    return { ok: false, error: '案件不存在' };
+  }
+
+  const caseData = data[0];
+
+  // 权限校验：只有创建者或参与者才能更新
+  if (!hasCaseAccess(caseData, openid)) {
+    console.warn('[caseApi] update DENIED', {
+      caseId,
+      openid: openid.slice(0, 8) + '...',
+      caseOwner: caseData._openid?.slice(0, 8) + '...',
+    });
+    return { ok: false, error: '无权操作该案件' };
   }
 
   // 按角色过滤可更新字段
@@ -204,22 +282,20 @@ async function handleUpdate(openid, event) {
     }
   }
 
-  // 按 _id 查询（参与者也能更新）
-  const { data } = await db.collection('cases')
-    .where({ _id: caseId, deletedAt: null })
-    .limit(1)
-    .get();
-
-  if (data.length === 0) {
-    return { ok: false, error: '案件不存在' };
-  }
-
   const now = new Date().toISOString();
   const updateData = { ...filteredPatch, updatedAt: now };
 
   await db.collection('cases').doc(caseId).update({ data: updateData });
 
   const { data: updated } = await db.collection('cases').doc(caseId).get();
+
+  console.info('[caseApi] update success', {
+    caseId,
+    openid: openid.slice(0, 8) + '...',
+    role,
+    updatedFields: Object.keys(filteredPatch),
+  });
+
   return { ok: true, case: { ...updated, id: updated._id } };
 }
 
@@ -296,5 +372,9 @@ async function handlePurge(openid, event) {
   }
 
   await db.collection('cases').doc(caseId).remove();
+  console.info('[caseApi] purge success', {
+    caseId,
+    openid: openid.slice(0, 8) + '...',
+  });
   return { ok: true };
 }
