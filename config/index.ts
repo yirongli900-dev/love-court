@@ -1,10 +1,34 @@
 import { defineConfig, type UserConfigExport } from '@tarojs/cli';
 import path from 'path';
+import dotenv from 'dotenv';
+import fs from 'fs';
 import devConfig from './dev';
 import prodConfig from './prod';
+
+// 加载环境变量文件
+function loadEnvFile(mode: string): Record<string, string> {
+  const envFile = path.resolve(__dirname, '..', `.env.${mode}`);
+  if (fs.existsSync(envFile)) {
+    const result = dotenv.config({ path: envFile });
+    return result.parsed || {};
+  }
+  return {};
+}
+
 // https://taro-docs.jd.com/docs/next/config#defineconfig-辅助函数
 export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
   const isDev = mode === 'development';
+
+  // 加载 .env.{mode} 并构造 defineConstants
+  const envVars = loadEnvFile(mode);
+  const defineConstants: Record<string, string> = {};
+  for (const [key, value] of Object.entries(envVars)) {
+    defineConstants[`process.env.${key}`] = JSON.stringify(value);
+  }
+  // 注入 NODE_ENV 和 TARO_ENV
+  defineConstants['process.env.NODE_ENV'] = JSON.stringify(mode);
+  defineConstants['process.env.TARO_ENV'] = JSON.stringify('weapp');
+
   const baseConfig: UserConfigExport<'webpack5'> = {
     projectName: 'love-court-miniapp',
     date: '2025-12-10',
@@ -18,7 +42,7 @@ export default defineConfig<'webpack5'>(async (merge, { command, mode }) => {
     sourceRoot: 'src',
     outputRoot: process.env.TARO_OUTPUT_DIR || 'dist',
     plugins: ['@tarojs/plugin-html'],
-    defineConstants: {},
+    defineConstants,
     copy: {
       patterns: [],
       options: {},
