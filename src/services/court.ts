@@ -202,15 +202,25 @@ export const courtApi = {
 
     return withLocalFallback(() => request<{ case: CourtCase }>('/api/cases', 'POST'), localAction);
   },
-  joinCase: (input: JoinCaseInput | string, role: UserRole = 'defendant') => {
+  joinCase: async (input: JoinCaseInput | string, role: UserRole = 'defendant') => {
     const payload = typeof input === 'string' ? { caseId: input, role } : input;
     const caseId = payload.caseId || '';
     if (!caseId) {
-      return Promise.reject(new Error('缺少案件 ID'));
+      throw new Error('缺少案件 ID');
     }
     if (isLocalCase(caseId)) {
-      return Promise.resolve({ case: getLocalCase(caseId) });
+      return { case: getLocalCase(caseId) };
     }
+
+    // 云函数优先：通过 join action 加入案件
+    if (await shouldUseCloud(caseId)) {
+      try {
+        return await callCaseApi<{ case: CourtCase }>('join', { caseId, inviteCode: payload.inviteCode });
+      } catch (error) {
+        console.warn('[CourtAPI] cloud joinCase failed, fallback', error);
+      }
+    }
+
     return withLocalFallback(
       () => request<{ case: CourtCase }>(`/api/cases/${encodeURIComponent(caseId)}/join`, 'POST', { role: payload.role, inviteCode: payload.inviteCode }),
       () => ({ case: getLocalCase(caseId) }),
