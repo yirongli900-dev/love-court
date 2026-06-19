@@ -29,6 +29,13 @@ function generateInviteCode() {
   return Math.random().toString(16).slice(2, 8).toUpperCase();
 }
 
+// 构建"未删除"的查询条件
+// 微信云数据库: { deletedAt: null } 不匹配字段不存在的文档
+// 必须用 _.exists(false).or(_.eq(null)) 覆盖两种情况
+function notDeleted() {
+  return _.exists(false).or(_.eq(null));
+}
+
 // 验证用户是否有权访问案件（创建者或参与者）
 function hasCaseAccess(caseData, openid) {
   if (!caseData) return false;
@@ -124,7 +131,7 @@ async function handleGet(openid, event) {
 
   // 按 _id 查询（不按 _openid 过滤，因为案件在两人间共享）
   const { data } = await db.collection('cases')
-    .where({ _id: caseId, deletedAt: null })
+    .where({ _id: caseId, deletedAt: notDeleted() })
     .limit(1)
     .get();
 
@@ -161,7 +168,7 @@ async function handleJoin(openid, event) {
   }
 
   const { data } = await db.collection('cases')
-    .where({ _id: caseId, deletedAt: null })
+    .where({ _id: caseId, deletedAt: notDeleted() })
     .limit(1)
     .get();
 
@@ -215,8 +222,8 @@ async function handleList(openid, event) {
   // 查询条件：创建者 OR 参与者（使用 participants 数组包含当前用户）
   const query = db.collection('cases')
     .where(_.or([
-      { _openid: openid, deletedAt: null },
-      { participants: _.elemMatch(_.eq(openid)), deletedAt: null },
+      { _openid: openid, deletedAt: notDeleted() },
+      { participants: _.elemMatch(_.eq(openid)), deletedAt: notDeleted() },
     ]))
     .orderBy('updatedAt', 'desc');
 
@@ -249,7 +256,7 @@ async function handleUpdate(openid, event) {
 
   // 先获取案件，校验权限
   const { data } = await db.collection('cases')
-    .where({ _id: caseId, deletedAt: null })
+    .where({ _id: caseId, deletedAt: notDeleted() })
     .limit(1)
     .get();
 
