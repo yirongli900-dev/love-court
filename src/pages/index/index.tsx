@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Input, Text, Textarea, View } from '@tarojs/components';
 import Taro, { useDidShow, useLoad, useShareAppMessage } from '@tarojs/taro';
 import { courtApi } from '@/services/court';
+import { PageErrorBoundary } from '@/components/PageErrorBoundary';
+import { isDevelopmentEnv } from '@/config/env';
 import type { CasePatch, CourtCase, UserRole } from '@/types/court';
 import {
   ANSWER_MAX_LENGTH,
@@ -38,7 +40,7 @@ const emptyCase: CourtCase = {
   updatedAt: '',
 };
 
-const IndexPage: React.FC = () => {
+const IndexPageInner: React.FC = () => {
   const [caseData, setCaseData] = useState<CourtCase>(emptyCase);
   const [role, setRole] = useState<UserRole>('plaintiff');
   const [loading, setLoading] = useState(false);
@@ -46,12 +48,47 @@ const IndexPage: React.FC = () => {
   const [initError, setInitError] = useState<string>('');
   const [flipped, setFlipped] = useState(false);
   const [weakNetwork, setWeakNetwork] = useState(false);
+  const [cloudReady, setCloudReady] = useState(false);
 
   // 订阅弱网状态
   useEffect(() => {
     const unsubscribe = subscribeNetworkStatus(setWeakNetwork);
     return unsubscribe;
   }, []);
+
+  // 检测云开发可用性（动态 import 隔离，避免顶层加载失败）
+  useEffect(() => {
+    let mounted = true;
+    import('@/services/cloud')
+      .then(({ isCloudAvailable }) => {
+        if (mounted) setCloudReady(isCloudAvailable());
+      })
+      .catch(() => {
+        /* 云模块加载失败，保持 cloudReady=false */
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // 测试云连接
+  const testCloudConnection = async () => {
+    Taro.showLoading({ title: '测试中...', mask: true });
+    try {
+      const { pingHealthCheck } = await import('@/services/cloud');
+      const ok = await pingHealthCheck();
+      Taro.hideLoading();
+      if (ok) {
+        Taro.showToast({ title: '云连接正常', icon: 'success' });
+      } else {
+        Taro.showToast({ title: '云连接失败，请检查云函数部署', icon: 'none' });
+      }
+    } catch (error) {
+      Taro.hideLoading();
+      const message = error instanceof Error ? error.message : '云连接异常';
+      Taro.showToast({ title: message, icon: 'none' });
+    }
+  };
 
   const canVerdict = useMemo(() => {
     return Boolean(
@@ -452,6 +489,16 @@ const IndexPage: React.FC = () => {
             </Button>
           </View>
 
+          {isDevelopmentEnv && cloudReady && (
+            <View className={styles.actionGrid}>
+              <Button className={styles.secondaryButton} hoverClass="none" onClick={testCloudConnection}>
+                <View className={styles.buttonInner}>
+                  <Text className={styles.secondaryButtonText}>测试云连接</Text>
+                </View>
+              </Button>
+            </View>
+          )}
+
           <View className={frontClassName}>
             <View className={styles.cardFaceFront}>
               <Text className={styles.verdictTitle}>裁决书正面</Text>
@@ -507,6 +554,14 @@ const IndexPage: React.FC = () => {
         </>
       )}
     </View>
+  );
+};
+
+const IndexPage: React.FC = () => {
+  return (
+    <PageErrorBoundary>
+      <IndexPageInner />
+    </PageErrorBoundary>
   );
 };
 
