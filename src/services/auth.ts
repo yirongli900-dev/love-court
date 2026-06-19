@@ -12,6 +12,7 @@ export interface BusinessSession {
 
 const SESSION_STORAGE_KEY = 'love-court-business-session';
 const CLIENT_ID_STORAGE_KEY = 'love-court-client-id';
+const CLOUD_OPENID_KEY = 'love-court-cloud-openid';
 let bootstrapPromise: Promise<string> | null = null;
 
 function readSession() {
@@ -84,7 +85,23 @@ export function clearBusinessSession() {
 }
 
 async function createBusinessSession() {
-  if (!authEnabled || process.env.TARO_ENV !== 'weapp') {
+  // 使用 Taro.getEnv() 替代 process.env.TARO_ENV，避免 process 未定义问题
+  if (Taro.getEnv() !== Taro.ENV_TYPE.WEAPP) {
+    return getBusinessToken();
+  }
+
+  // 1. 云端登录优先（通过云函数获取 openid）
+  try {
+    const cloudOpenId = await bootstrapCloudSession();
+    if (cloudOpenId) {
+      return cloudOpenId;
+    }
+  } catch (error) {
+    console.warn('[Auth] cloud session failed, fallback to HTTP', error);
+  }
+
+  // 2. 降级到 HTTP 登录（需要自建后端）
+  if (!authEnabled) {
     return getBusinessToken();
   }
 
@@ -104,6 +121,46 @@ async function createBusinessSession() {
   } catch (error) {
     console.warn('[Auth] bootstrap session failed', error);
     return getBusinessToken();
+  }
+}
+
+// 云端登录：通过 userLogin 云函数获取 openid
+async function bootstrapCloudSession(): Promise<string> {
+  if (Taro.getEnv() !== Taro.ENV_TYPE.WEAPP) {
+    return '';
+  }
+
+  // 先检查缓存的 openid
+  const cachedOpenId = getCloudOpenId();
+  if (cachedOpenId) {
+    return cachedOpenId;
+  }
+
+  try {
+    const { isCloudAvailable, callCloudFunction } = await import('@/services/cloud');
+    if (!isCloudAvailable()) {
+      return '';
+    }
+
+    const result = await callCloudFunction<{ ok: boolean; openid?: string; isNewUser?: boolean }>('userLogin');
+    if (result?.ok && result.openid) {
+      Taro.setStorageSync(CLOUD_OPENID_KEY, result.openid);
+      console.info('[Auth] cloud login success', { isNewUser: result.isNewUser });
+      return result.openid;
+    }
+  } catch (error) {
+    console.warn('[Auth] cloud login failed', error);
+  }
+
+  return '';
+}
+
+// 获取缓存的云端 openid
+export function getCloudOpenId(): string {
+  try {
+    return Taro.getStorageSync<string>(CLOUD_OPENID_KEY) || '';
+  } catch {
+    return '';
   }
 }
 

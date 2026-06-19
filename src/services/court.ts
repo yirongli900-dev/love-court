@@ -1,6 +1,6 @@
 import Taro from '@tarojs/taro';
-import { buildApiUrl } from '@/config/env';
-import { bootstrapBusinessSession, clearBusinessSession, getBusinessAuthHeader, getClientIdentityHeader } from '@/services/auth';
+import { buildApiUrl, isDevelopmentEnv } from '@/config/env';
+import { clearBusinessSession, getBusinessAuthHeader, getClientIdentityHeader } from '@/services/auth';
 import type { CasePatch, CourtCase, JoinCaseInput, VerdictRatio, UserRole } from '@/types/court';
 
 const LOCAL_CASES_KEY = 'love-court-miniapp-cases';
@@ -18,7 +18,8 @@ interface ApiResponse<T> {
 }
 
 async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET', data?: unknown): Promise<T> {
-  await bootstrapBusinessSession();
+  // 不阻塞等待登录完成：登录在后台进行，请求发送时读取当前 token。
+  // 后端返回 401 时由上层 withLocalFallback 降级或触发重登。
   const url = buildApiUrl(path);
   console.info('[CourtAPI] request', { path, method });
   try {
@@ -26,7 +27,7 @@ async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' | 'DELE
       url,
       method,
       data,
-      timeout: 8000,
+      timeout: 3000,
       header: {
         'Content-Type': 'application/json',
         ...getBusinessAuthHeader(),
@@ -158,6 +159,10 @@ function buildLocalVerdict(item: CourtCase) {
 }
 
 async function withLocalFallback<T>(remoteAction: () => Promise<T>, localAction: () => T): Promise<T> {
+  // 开发环境无后端服务时，直接走本地兜底，避免每次请求都超时等待
+  if (isDevelopmentEnv) {
+    return localAction();
+  }
   try {
     return await remoteAction();
   } catch (error: any) {
@@ -181,8 +186,40 @@ function getLocalCase(caseId: string) {
   return item;
 }
 
+// 云函数优先：调用 caseApi 云函数进行案件 CRUD
+async function callCaseApi<T = unknown>(action: string, data?: Record<string, unknown>): Promise<T> {
+  const { callCloudFunction } = await import('@/services/cloud');
+  const result = await callCloudFunction<{ ok: boolean; case?: CourtCase; cases?: CourtCase[]; total?: number; page?: number; totalPages?: number; error?: string }>('caseApi', { action, ...data });
+  if (!result?.ok) {
+    throw new Error(result?.error || '云函数调用失败');
+  }
+  return result as unknown as T;
+}
+
+// 判断是否走云函数（非开发环境 + 非 local-* 案件 + 云可用）
+async function shouldUseCloud(caseId?: string): Promise<boolean> {
+  if (isDevelopmentEnv) return false;
+  if (caseId && caseId.startsWith('local-')) return false;
+  const { isCloudAvailable } = await import('@/services/cloud');
+  return isCloudAvailable();
+}
+
 export const courtApi = {
-  createCase: () => withLocalFallback(() => request<{ case: CourtCase }>('/api/cases', 'POST'), () => ({ case: createLocalCase() })),
+  createCase: async () => {
+    const localAction = () => ({ case: createLocalCase() });
+
+    // 云函数优先
+    if (await shouldUseCloud()) {
+      try {
+        const result = await callCaseApi<{ case: CourtCase }>('create');
+        return result;
+      } catch (error) {
+        console.warn('[CourtAPI] cloud createCase failed, fallback', error);
+      }
+    }
+
+    return withLocalFallback(() => request<{ case: CourtCase }>('/api/cases', 'POST'), localAction);
+  },
   joinCase: (input: JoinCaseInput | string, role: UserRole = 'defendant') => {
     const payload = typeof input === 'string' ? { caseId: input, role } : input;
     const caseId = payload.caseId || '';
@@ -197,14 +234,45 @@ export const courtApi = {
       () => ({ case: getLocalCase(caseId) }),
     );
   },
-  getCase: (caseId: string) => {
-    if (isLocalCase(caseId)) return Promise.resolve({ case: getLocalCase(caseId) });
+  getCase: async (caseId: string) => {
+    if (isLocalCase(caseId)) return { case: getLocalCase(caseId) };
+
+    // 云函数优先
+    if (await shouldUseCloud(caseId)) {
+      try {
+        return await callCaseApi<{ case: CourtCase }>('get', { caseId });
+      } catch (error) {
+        console.warn('[CourtAPI] cloud getCase failed, fallback', error);
+      }
+    }
+
     return withLocalFallback(() => request<{ case: CourtCase }>(`/api/cases/${encodeURIComponent(caseId)}`), () => ({ case: getLocalCase(caseId) }));
   },
-  listCases: (page = 1, pageSize = 10) => withLocalFallback(() => request<{ cases: CourtCase[]; page?: number; pageSize?: number; total?: number; totalPages?: number }>(`/api/me/cases?page=${page}&pageSize=${pageSize}`), () => ({ cases: readLocalCases(), page: 1, pageSize: readLocalCases().length || 10, total: readLocalCases().length, totalPages: 1 })),
-  updateCase: (caseId: string, patch: CasePatch & { role?: UserRole }) => {
+  listCases: async (page = 1, pageSize = 10) => {
+    // 云函数优先
+    if (await shouldUseCloud()) {
+      try {
+        return await callCaseApi<{ cases: CourtCase[]; page?: number; pageSize?: number; total?: number; totalPages?: number }>('list', { page, pageSize });
+      } catch (error) {
+        console.warn('[CourtAPI] cloud listCases failed, fallback', error);
+      }
+    }
+
+    return withLocalFallback(() => request<{ cases: CourtCase[]; page?: number; pageSize?: number; total?: number; totalPages?: number }>(`/api/me/cases?page=${page}&pageSize=${pageSize}`), () => ({ cases: readLocalCases(), page: 1, pageSize: readLocalCases().length || 10, total: readLocalCases().length, totalPages: 1 }));
+  },
+  updateCase: async (caseId: string, patch: CasePatch & { role?: UserRole }) => {
     const localAction = () => ({ case: updateLocalCase(caseId, (item) => ({ ...item, ...patch, updatedAt: new Date().toISOString() })) });
-    if (isLocalCase(caseId)) return Promise.resolve(localAction());
+    if (isLocalCase(caseId)) return localAction();
+
+    // 云函数优先
+    if (await shouldUseCloud(caseId)) {
+      try {
+        return await callCaseApi<{ case: CourtCase }>('update', { caseId, patch });
+      } catch (error) {
+        console.warn('[CourtAPI] cloud updateCase failed, fallback', error);
+      }
+    }
+
     return withLocalFallback(() => request<{ case: CourtCase }>(`/api/cases/${encodeURIComponent(caseId)}/statements`, 'PATCH', patch), localAction);
   },
   askQuestion: async (caseId: string) => {
