@@ -16,11 +16,6 @@ const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_HISTORY_PAGE_SIZE = 10;
 const MAX_HISTORY_PAGE_SIZE = 50;
 
-// 生产环境判断：NODE_ENV=production 时强制鉴权，其他环境允许 client-id 降级
-function isProductionMode() {
-  return process.env.NODE_ENV === "production";
-}
-
 // 接口限流：按 client-id 或 IP 维度，每分钟最多 RATE_LIMIT_WINDOW 内 RATE_LIMIT_MAX 次请求
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || 60 * 1000;
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 120;
@@ -98,36 +93,6 @@ function readBody(req) {
 async function handleApi(req, res, url) {
   const method = req.method || "GET";
   const parts = url.pathname.split("/").filter(Boolean);
-
-  // 微信登录：POST /api/auth/wechat/login
-  // 放在 getRequestContext 之前，避免登录请求提前创建无用匿名用户
-  if (method === "POST" && url.pathname === "/api/auth/wechat/login") {
-    // 1. 校验环境变量，未配置返回 503
-    if (!process.env.WECHAT_APPID || !process.env.WECHAT_SECRET || !isTokenSecretValid()) {
-      const err = new Error("微信登录服务未配置");
-      err.status = 503;
-      throw err;
-    }
-    // 2. 读取请求体 code，缺失返回 400
-    const body = await readBody(req);
-    const code = String(body.code || "").trim();
-    if (!code) {
-      const err = new Error("缺少 code 参数");
-      err.status = 400;
-      throw err;
-    }
-    // 3. 调用 code2Session(code)，失败返回 502
-    const session = await code2Session(code);
-    // 4. 以 source="wechat"、sourceKey=openid 调用 upsertUser
-    const user = upsertUser("wechat", session.openid);
-    // 5. 调用 signToken({ userId, openId }, 7) 签发 token
-    const token = signToken({ userId: user.id, openId: session.openid }, 7);
-    // 6. 返回 200，body 为 { token, openId, userId, expiresAt }
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    sendJson(res, 200, { token, openId: session.openid, userId: user.id, expiresAt });
-    return;
-  }
-
   const context = getRequestContext(req);
 
   // 接口限流：按 client-id 或 IP 维度
@@ -510,39 +475,9 @@ function inferNextCaseSequence(cases) {
   return max + 1;
 }
 
-// TOKEN_SECRET 校验：必须存在且至少 32 位
-function isTokenSecretValid() {
-  const secret = process.env.TOKEN_SECRET;
-  return typeof secret === "string" && secret.length >= 32;
-}
-
 function getRequestContext(req) {
   const headers = req.headers || {};
-  const auth = String(headers.authorization || headers.Authorization || "");
   const clientId = String(headers["x-love-court-client-id"] || "").trim();
-  const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-
-  // 优先校验 token
-  if (token) {
-    const payload = verifyToken(token);
-    if (payload && payload.userId) {
-      // 按 userId 从 store 查找用户
-      const store = normalizeStore(readRawStore());
-      const user = store.users.find((item) => item.id === payload.userId);
-      if (user) return { user };
-    }
-    // token 非法/过期/用户不存在
-  }
-
-  // 生产环境强制鉴权：无 token 或 token 无效，一律 401
-  // 登录接口已在 getRequestContext 之前处理，不会走到这里
-  if (isProductionMode()) {
-    const err = new Error("请先登录");
-    err.status = 401;
-    throw err;
-  }
-
-  // 开发环境降级：client-id 或 anonymous
   const source = clientId ? "client-id" : "anonymous";
   const sourceKey = clientId || req.socket.remoteAddress || "anonymous";
   const user = upsertUser(source, sourceKey);
@@ -977,100 +912,6 @@ function randomId() {
 
 function randomToken(length) {
   return crypto.randomBytes(Math.ceil(length / 2)).toString("hex").slice(0, length).toUpperCase();
-}
-
-// base64url 编码：标准 base64 的 + 换成 -、/ 换成 _、去掉 = 填充
-function toBase64Url(str) {
-  return Buffer.from(str)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-// base64url 解码：还原标准 base64 后再解码
-function fromBase64Url(str) {
-  const standard = String(str).replace(/-/g, "+").replace(/_/g, "/");
-  return Buffer.from(standard, "base64").toString("utf8");
-}
-
-// 签发 token：HMAC-SHA256，格式为 base64url(payload).base64url(hmac)
-function signToken(payload, expiresInDays) {
-  if (!isTokenSecretValid()) throw new Error("TOKEN_SECRET 未配置或长度不足 32 位");
-  const secret = process.env.TOKEN_SECRET;
-  const exp = Math.floor(Date.now() / 1000) + expiresInDays * 24 * 60 * 60;
-  const fullPayload = Object.assign({}, payload, { exp });
-  const payloadB64 = toBase64Url(JSON.stringify(fullPayload));
-  const hmac = crypto
-    .createHmac("sha256", secret)
-    .update(payloadB64)
-    .digest("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-  return `${payloadB64}.${hmac}`;
-}
-
-// 校验 token：重算 hmac 比对（防时序攻击）+ 校验 exp 是否过期
-// 合法返回 payload 对象，非法/过期/未配置 TOKEN_SECRET 返回 null
-function verifyToken(token) {
-  if (!isTokenSecretValid()) return null;
-  const secret = process.env.TOKEN_SECRET;
-  const parts = String(token || "").split(".");
-  if (parts.length !== 2) return null;
-  const [payloadB64, hmacB64] = parts;
-  const expectedHmac = crypto
-    .createHmac("sha256", secret)
-    .update(payloadB64)
-    .digest("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-  // 使用 timingSafeEqual 防时序攻击，长度不一致会抛错
-  let hmacEqual = false;
-  try {
-    const a = Buffer.from(expectedHmac);
-    const b = Buffer.from(hmacB64);
-    hmacEqual = a.length === b.length && crypto.timingSafeEqual(a, b);
-  } catch {
-    return null;
-  }
-  if (!hmacEqual) return null;
-  let payload;
-  try {
-    payload = JSON.parse(fromBase64Url(payloadB64));
-  } catch {
-    return null;
-  }
-  if (!payload || typeof payload.exp !== "number") return null;
-  if (Math.floor(Date.now() / 1000) >= payload.exp) return null;
-  return payload;
-}
-
-// 调用微信 code2Session，用 js_code 换取 openid 和 session_key
-// 注意：使用原生 fetch，部署环境需要 Node.js 18+
-// 微信返回 errcode 非 0 或请求异常时抛错并设置 error.status = 502
-async function code2Session(code) {
-  const appid = process.env.WECHAT_APPID;
-  const secret = process.env.WECHAT_SECRET;
-  const requestUrl = `https://api.weixin.qq.com/sns/jscode2session?appid=${encodeURIComponent(appid)}&secret=${encodeURIComponent(secret)}&js_code=${encodeURIComponent(code)}&grant_type=authorization_code`;
-  let data;
-  try {
-    const resp = await fetch(requestUrl);
-    data = await resp.json();
-  } catch (error) {
-    const err = new Error("调用微信 code2Session 失败: " + (error && error.message ? error.message : error));
-    err.status = 502;
-    throw err;
-  }
-  if (!data || (data.errcode && data.errcode !== 0) || !data.openid) {
-    const err = new Error(
-      "微信 code2Session 返回错误: " + (data ? `${data.errcode || ""} ${data.errmsg || ""}`.trim() : "无响应")
-    );
-    err.status = 502;
-    throw err;
-  }
-  return { openid: data.openid, session_key: data.session_key, unionid: data.unionid };
 }
 
 function loadEnvFile() {

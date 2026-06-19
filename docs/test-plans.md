@@ -7,7 +7,7 @@
 ## 0. 测试前置条件
 
 - [ ] 已配置生产 HTTPS 域名并加入小程序「request 合法域名」白名单
-- [ ] `TARO_APP_LOGIN_ENABLED=true`、`TARO_APP_API_BASE` 指向生产 HTTPS
+- [ ] 云开发环境已启用，`TARO_APP_API_BASE` 仅用于 HTTP 本地兜底
 - [ ] `DEEPSEEK_API_KEY` 已配置且余额充足（用于 AI 裁决路径）
 - [ ] 后端 `server.js` 已部署，`data/cases.json` 可读写，`data/backups/` 可写
 - [ ] 已通过 `node scripts/drill.js` 灾备演练
@@ -18,14 +18,14 @@
 
 ## 1. 功能测试（Functional Test）
 
-### 1.1 登录与用户绑定
+### 1.1 微信云身份识别
 
 | 编号 | 场景 | 步骤 | 预期 | 通过 |
 | --- | --- | --- | --- | --- |
-| F-LOGIN-01 | 首次登录 | A 首次打开小程序 | 后端创建 user 记录（source=business-token），签发业务 token 并写入 storage；首页可正常加载 | ☐ |
-| F-LOGIN-02 | 重复登录 | A 关闭后再次打开 | 自动恢复登录态，无需重新授权；历史案件可见 | ☐ |
-| F-LOGIN-03 | Token 失效 | 手动清空 storage 或后端撤销 token | 下次接口请求触发 401，前端重新走 `Taro.login` 换发新 token | ☐ |
-| F-LOGIN-04 | 非微信环境 | 在 H5 / 开发者工具关闭微信登录 | `authEnabled=false` 时降级为 client-id 模式，不阻塞核心流程 | ☐ |
+| F-LOGIN-01 | 首次打开 | A 首次打开小程序 | 云函数通过微信上下文取得 A 的 `openid`，无需额外登录请求 | ☐ |
+| F-LOGIN-02 | 重复打开 | A 关闭后再次打开 | 同一微信用户取得相同 `openid`，历史案件可见 | ☐ |
+| F-LOGIN-03 | 身份隔离 | A、B 分别调用云函数 | 两个账号取得不同 `openid`，案件权限按参与者隔离 | ☐ |
+| F-LOGIN-04 | 非微信环境 | 在 H5 或未启用云开发时运行 | 降级为 HTTP `client-id` 或本地数据，不阻塞核心流程 | ☐ |
 
 ### 1.2 创建案件
 

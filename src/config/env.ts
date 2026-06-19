@@ -1,5 +1,3 @@
-import Taro from '@tarojs/taro';
-
 // ====================================================================
 // 环境变量说明
 // ====================================================================
@@ -38,12 +36,6 @@ export const apiBaseUrl = normalizeBaseUrl(
   process.env.TARO_APP_API_BASE || (isProductionEnv ? DEFAULT_PROD_API_BASE : DEFAULT_DEV_API_BASE),
 );
 
-// 登录开关
-export const authEnabled = process.env.TARO_APP_LOGIN_ENABLED !== 'false';
-export const authLoginPath = process.env.TARO_APP_AUTH_LOGIN_PATH || '/api/auth/wechat/login';
-export const businessTokenKey = process.env.TARO_APP_TOKEN_KEY || 'love-court-business-token';
-export const refreshTokenKey = process.env.TARO_APP_REFRESH_TOKEN_KEY || 'love-court-refresh-token';
-
 // 云开发配置
 export const cloudEnvId = process.env.TARO_APP_CLOUD_ENV || 'cloud1-d7g0sqy2891bd103a';
 export const cloudEnabled = process.env.TARO_APP_CLOUD_ENABLED !== 'false';
@@ -51,13 +43,4 @@ export const cloudEnabled = process.env.TARO_APP_CLOUD_ENABLED !== 'false';
 export function buildApiUrl(path: string) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   return `${apiBaseUrl}${normalizedPath}`;
-}
-
-export function readStoredBusinessToken() {
-  try {
-    return Taro.getStorageSync<string>(businessTokenKey) || '';
-  } catch (error) {
-    console.error('[Env] read token failed', error);
-    return '';
-  }
 }
