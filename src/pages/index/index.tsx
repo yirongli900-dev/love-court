@@ -40,15 +40,40 @@ const emptyCase: CourtCase = {
   updatedAt: '',
 };
 
+const LOCKED_ROLE_KEY = 'love-court-locked-role';
+
+const getStoredLockedRole = (): UserRole | null => {
+  try {
+    const stored = localStorage.getItem(LOCKED_ROLE_KEY);
+    if (stored === 'plaintiff' || stored === 'defendant') return stored;
+  } catch { /* ignore */ }
+  return null;
+};
+
 const IndexPageInner: React.FC = () => {
   const [caseData, setCaseData] = useState<CourtCase>(emptyCase);
   const [role, setRole] = useState<UserRole>('plaintiff');
+  const [lockedRole, setLockedRole] = useState<UserRole | null>(getStoredLockedRole);
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [initError, setInitError] = useState<string>('');
   const [flipped, setFlipped] = useState(false);
   const [weakNetwork, setWeakNetwork] = useState(false);
   const [cloudReady, setCloudReady] = useState(false);
+
+  // 持久化 lockedRole 到 localStorage
+  useEffect(() => {
+    if (lockedRole) {
+      try { localStorage.setItem(LOCKED_ROLE_KEY, lockedRole); } catch { /* ignore */ }
+    }
+  }, [lockedRole]);
+
+  // lockedRole 变化时同步 role
+  useEffect(() => {
+    if (lockedRole) {
+      setRole(lockedRole);
+    }
+  }, [lockedRole]);
 
   // 订阅弱网状态
   useEffect(() => {
@@ -91,21 +116,32 @@ const IndexPageInner: React.FC = () => {
   };
 
   const canVerdict = useMemo(() => {
-    return Boolean(
-      caseData.title &&
+    const result = Boolean(
+      caseData.id &&
+        caseData.title &&
         caseData.plaintiffName &&
         caseData.defendantName &&
-        caseData.plaintiffStatement.trim().length >= STATEMENT_MIN_LENGTH &&
-        caseData.defendantStatement.trim().length >= STATEMENT_MIN_LENGTH,
+        (caseData.plaintiffStatement?.trim().length || 0) >= STATEMENT_MIN_LENGTH &&
+        (caseData.defendantStatement?.trim().length || 0) >= STATEMENT_MIN_LENGTH,
     );
+    console.info('[CourtPage] canVerdict calculated:', {
+      hasId: !!caseData.id,
+      hasTitle: !!caseData.title,
+      hasPlaintiffName: !!caseData.plaintiffName,
+      hasDefendantName: !!caseData.defendantName,
+      plaintiffStmtLen: caseData.plaintiffStatement?.trim().length || 0,
+      defendantStmtLen: caseData.defendantStatement?.trim().length || 0,
+      result,
+    });
+    return result;
   }, [caseData]);
 
   const progressText = useMemo(() => {
     if (!caseData.id) return '正在创建案件房间';
     if (caseData.verdict) return '已宣判，可查看裁决书正反面';
     if (!caseData.title || !caseData.plaintiffName || !caseData.defendantName) return '请先补全案由和双方昵称';
-    if (caseData.plaintiffStatement.trim().length < STATEMENT_MIN_LENGTH) return `等待原告陈词，至少 ${STATEMENT_MIN_LENGTH} 个字`;
-    if (caseData.defendantStatement.trim().length < STATEMENT_MIN_LENGTH) return `等待被告陈词，至少 ${STATEMENT_MIN_LENGTH} 个字`;
+    if ((caseData.plaintiffStatement?.trim().length || 0) < STATEMENT_MIN_LENGTH) return `等待原告陈词，至少 ${STATEMENT_MIN_LENGTH} 个字`;
+    if ((caseData.defendantStatement?.trim().length || 0) < STATEMENT_MIN_LENGTH) return `等待被告陈词，至少 ${STATEMENT_MIN_LENGTH} 个字`;
     return '双方陈词已齐，可以追问或宣判';
   }, [caseData]);
 
@@ -114,7 +150,7 @@ const IndexPageInner: React.FC = () => {
     const sharedRole = options.role === 'defendant' ? 'defendant' : 'plaintiff';
     const inviteCode = typeof options.inviteCode === 'string' ? options.inviteCode : '';
     if (sharedCaseId) {
-      setRole(sharedRole);
+      setLockedRole(sharedRole);
       setCurrentCaseId(sharedCaseId);
       void joinAndLoadCase(sharedCaseId, sharedRole, inviteCode);
     }
@@ -162,6 +198,7 @@ const IndexPageInner: React.FC = () => {
     setInitError('');
     try {
       await courtApi.joinCase({ caseId, role: joinedRole, inviteCode });
+      setLockedRole(joinedRole);
     } catch (error) {
       console.warn('[CourtPage] joinCase failed', error);
     } finally {
@@ -175,7 +212,7 @@ const IndexPageInner: React.FC = () => {
     try {
       const payload = await courtApi.createCase();
       setCaseData(payload.case);
-      setRole('plaintiff');
+      setLockedRole('plaintiff');
       rememberOwnedCase(payload.case.id);
       setCurrentCaseId(payload.case.id);
       setFlipped(false);
@@ -190,35 +227,39 @@ const IndexPageInner: React.FC = () => {
   };
 
   const saveCase = async (quiet = false) => {
-    if (!caseData.id) return;
-    // 表单校验：原告字段在原告身份下必填
-    if (role === 'plaintiff') {
+    if (!caseData.id || !lockedRole) return;
+    // 根据锁定角色校验对应字段
+    if (lockedRole === 'plaintiff') {
       const infoIssue = validateCaseInfo({
         title: caseData.title,
         plaintiffName: caseData.plaintiffName,
         defendantName: caseData.defendantName,
       });
       if (!showValidationIssue(infoIssue)) return;
+      const stmtIssue = validateStatement('plaintiffStatement', caseData.plaintiffStatement);
+      if (!showValidationIssue(stmtIssue)) return;
+    } else {
+      const stmtIssue = validateStatement('defendantStatement', caseData.defendantStatement);
+      if (!showValidationIssue(stmtIssue)) return;
     }
     setLoading(true);
-    const plaintiffFields = {
-      title: trimInput(caseData.title, TITLE_MAX_LENGTH),
-      plaintiffName: trimInput(caseData.plaintiffName, NAME_MAX_LENGTH),
-      defendantName: trimInput(caseData.defendantName, NAME_MAX_LENGTH),
-      plaintiffStatement: trimInput(caseData.plaintiffStatement, STATEMENT_MAX_LENGTH),
-      plaintiffAnswer: trimInput(caseData.plaintiffAnswer, ANSWER_MAX_LENGTH),
-    };
-    const defendantFields = {
-      defendantStatement: trimInput(caseData.defendantStatement, STATEMENT_MAX_LENGTH),
-      defendantAnswer: trimInput(caseData.defendantAnswer, ANSWER_MAX_LENGTH),
-    };
-    const patch: CasePatch & { role: UserRole } = {
-      ...plaintiffFields,
-      ...defendantFields,
-      role,
-    };
+    const patch: CasePatch & { role: UserRole } = lockedRole === 'plaintiff'
+      ? {
+          title: trimInput(caseData.title, TITLE_MAX_LENGTH),
+          plaintiffName: trimInput(caseData.plaintiffName, NAME_MAX_LENGTH),
+          defendantName: trimInput(caseData.defendantName, NAME_MAX_LENGTH),
+          plaintiffStatement: trimInput(caseData.plaintiffStatement, STATEMENT_MAX_LENGTH),
+          plaintiffAnswer: trimInput(caseData.plaintiffAnswer, ANSWER_MAX_LENGTH),
+          role: 'plaintiff',
+        }
+      : {
+          defendantStatement: trimInput(caseData.defendantStatement, STATEMENT_MAX_LENGTH),
+          defendantAnswer: trimInput(caseData.defendantAnswer, ANSWER_MAX_LENGTH),
+          role: 'defendant',
+        };
     try {
       const payload = await courtApi.updateCase(caseData.id, patch);
+      console.info('[CourtPage] saveCase response:', payload.case);
       setCaseData(payload.case);
       if (!quiet) Taro.showToast({ title: '已同步', icon: 'success' });
     } catch (error) {
@@ -394,34 +435,34 @@ const IndexPageInner: React.FC = () => {
             <Text className={styles.caseNo}>{caseData.caseNumber}号案件</Text>
             <Text className={styles.status}>{progressText}</Text>
             <View className={styles.roleRow}>
-              <View className={role === 'plaintiff' ? styles.roleActive : styles.roleButton} onClick={() => setRole('plaintiff')}>
-                <Text>原告</Text>
+              <View className={role === 'plaintiff' ? styles.roleActive : styles.roleButton}>
+                <Text>原告{lockedRole === 'plaintiff' ? '（已锁定）' : ''}</Text>
               </View>
-              <View className={role === 'defendant' ? styles.roleActive : styles.roleButton} onClick={() => setRole('defendant')}>
-                <Text>被告</Text>
+              <View className={role === 'defendant' ? styles.roleActive : styles.roleButton}>
+                <Text>被告{lockedRole === 'defendant' ? '（已锁定）' : ''}</Text>
               </View>
             </View>
           </View>
 
           <View className={styles.formCard}>
             <Text className={styles.sectionTitle}>案件信息</Text>
-            <Input className={styles.input} disabled={role !== 'plaintiff'} maxlength={TITLE_MAX_LENGTH} placeholder="案由，例如：打游戏互相抱怨案" value={caseData.title} onInput={(event) => patchCase({ title: event.detail.value })} />
-            <Input className={styles.input} disabled={role !== 'plaintiff'} maxlength={NAME_MAX_LENGTH} placeholder="原告昵称" value={caseData.plaintiffName} onInput={(event) => patchCase({ plaintiffName: event.detail.value })} />
-            <Input className={styles.input} disabled={role !== 'plaintiff'} maxlength={NAME_MAX_LENGTH} placeholder="被告昵称" value={caseData.defendantName} onInput={(event) => patchCase({ defendantName: event.detail.value })} />
+            <Input className={styles.input} disabled={lockedRole !== 'plaintiff'} maxlength={TITLE_MAX_LENGTH} placeholder="案由，例如：打游戏互相抱怨案" value={caseData.title} onInput={(event) => patchCase({ title: event.detail.value })} />
+            <Input className={styles.input} disabled={lockedRole !== 'plaintiff'} maxlength={NAME_MAX_LENGTH} placeholder="原告昵称" value={caseData.plaintiffName} onInput={(event) => patchCase({ plaintiffName: event.detail.value })} />
+            <Input className={styles.input} disabled={lockedRole !== 'plaintiff'} maxlength={NAME_MAX_LENGTH} placeholder="被告昵称" value={caseData.defendantName} onInput={(event) => patchCase({ defendantName: event.detail.value })} />
           </View>
 
           <View className={styles.formCard}>
             <Text className={styles.sectionTitle}>双方陈词</Text>
-            <Textarea className={styles.textarea} disabled={role !== 'plaintiff'} maxlength={STATEMENT_MAX_LENGTH} placeholder={`原告陈词，至少 ${STATEMENT_MIN_LENGTH} 个字`} value={caseData.plaintiffStatement} onInput={(event) => patchCase({ plaintiffStatement: event.detail.value })} />
-            <Textarea className={styles.textarea} disabled={role !== 'defendant'} maxlength={STATEMENT_MAX_LENGTH} placeholder={`被告陈词，至少 ${STATEMENT_MIN_LENGTH} 个字`} value={caseData.defendantStatement} onInput={(event) => patchCase({ defendantStatement: event.detail.value })} />
+            <Textarea className={styles.textarea} disabled={lockedRole !== 'plaintiff'} maxlength={STATEMENT_MAX_LENGTH} placeholder={`原告陈词，至少 ${STATEMENT_MIN_LENGTH} 个字`} value={caseData.plaintiffStatement} onInput={(event) => patchCase({ plaintiffStatement: event.detail.value })} />
+            <Textarea className={styles.textarea} disabled={lockedRole !== 'defendant'} maxlength={STATEMENT_MAX_LENGTH} placeholder={`被告陈词，至少 ${STATEMENT_MIN_LENGTH} 个字`} value={caseData.defendantStatement} onInput={(event) => patchCase({ defendantStatement: event.detail.value })} />
           </View>
 
           {caseData.question ? (
             <View className={styles.questionCard}>
               <Text className={styles.sectionTitle}>法官追问</Text>
               <Text className={styles.questionText}>{caseData.question}</Text>
-              <Textarea className={styles.textarea} disabled={role !== 'plaintiff'} maxlength={ANSWER_MAX_LENGTH} placeholder="原告补充回答" value={caseData.plaintiffAnswer} onInput={(event) => patchCase({ plaintiffAnswer: event.detail.value })} />
-              <Textarea className={styles.textarea} disabled={role !== 'defendant'} maxlength={ANSWER_MAX_LENGTH} placeholder="被告补充回答" value={caseData.defendantAnswer} onInput={(event) => patchCase({ defendantAnswer: event.detail.value })} />
+              <Textarea className={styles.textarea} disabled={lockedRole !== 'plaintiff'} maxlength={ANSWER_MAX_LENGTH} placeholder="原告补充回答" value={caseData.plaintiffAnswer} onInput={(event) => patchCase({ plaintiffAnswer: event.detail.value })} />
+              <Textarea className={styles.textarea} disabled={lockedRole !== 'defendant'} maxlength={ANSWER_MAX_LENGTH} placeholder="被告补充回答" value={caseData.defendantAnswer} onInput={(event) => patchCase({ defendantAnswer: event.detail.value })} />
             </View>
           ) : null}
 

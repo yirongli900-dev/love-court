@@ -191,6 +191,19 @@ async function handleUpdate(openid, event) {
     return { ok: false, error: '缺少 caseId' };
   }
 
+  // 按角色过滤可更新字段
+  const role = patch?.role;
+  const allowedFields = role === 'defendant'
+    ? ['defendantStatement', 'defendantAnswer']
+    : ['title', 'plaintiffName', 'defendantName', 'plaintiffStatement', 'plaintiffAnswer'];
+
+  const filteredPatch = {};
+  for (const key of allowedFields) {
+    if (patch[key] !== undefined) {
+      filteredPatch[key] = patch[key];
+    }
+  }
+
   // 按 _id 查询（参与者也能更新）
   const { data } = await db.collection('cases')
     .where({ _id: caseId, deletedAt: null })
@@ -202,9 +215,7 @@ async function handleUpdate(openid, event) {
   }
 
   const now = new Date().toISOString();
-  const updateData = { ...patch, updatedAt: now };
-  delete updateData._id;
-  delete updateData._openid;
+  const updateData = { ...filteredPatch, updatedAt: now };
 
   await db.collection('cases').doc(caseId).update({ data: updateData });
 
