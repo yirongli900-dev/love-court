@@ -208,6 +208,13 @@ main
 
 ## 小程序迁移计划
 
+### 用户身份识别
+
+微信小程序不再执行额外的 `wx.login -> code2Session -> 业务 Token`
+登录流程。云函数通过 `cloud.getWXContext().OPENID` 直接识别当前微信用户，
+前端无需保存 AppSecret、session key 或业务登录 Token。HTTP 本地开发兜底
+仍使用匿名 `client-id` 区分浏览器实例。
+
 当前 Web MVP 稳定后，会逐步迁移到微信小程序：
 
 ```text

@@ -114,7 +114,7 @@
 
 | Task | 验收标准 | 通过 |
 | --- | --- | --- |
-| 1.1 微信登录与业务 Token | `bootstrapBusinessSession` 在 weapp 环境调用 `Taro.login` 换发 token | ☐ |
+| 1.1 微信云身份识别 | 云函数通过 `getWXContext().OPENID` 自动识别调用用户，无额外登录 Token | ☐ |
 | 1.2 HTTPS 与环境隔离 | `.env.production` 指向 HTTPS；`.env.development` 指向本地 | ☐ |
 | 1.3 生产配置固化 | `project.config.json` 已 `minified: true`；无调试依赖进入生产构建 | ☐ |
 | 2.1 表结构 | 6 张表（users/cases/caseParticipants/caseStatements/verdicts/caseAccessTokens）已落地 | ☐ |
@@ -172,8 +172,8 @@
 - [ ] `.env.production` 已配置：
   - [ ] `TARO_APP_ENV=production`
   - [ ] `TARO_APP_API_BASE=https://api.love-court.example.com`（替换为真实域名）
-  - [ ] `TARO_APP_LOGIN_ENABLED=true`
-  - [ ] `TARO_APP_AUTH_LOGIN_PATH=/api/auth/wechat/login`
+  - [ ] 云开发环境 ID 与小程序 AppID 匹配
+  - [ ] `healthCheck` 返回当前调用者 `openid`
   - [ ] `TARO_APP_ID=` 正式 AppID
 - [ ] 后端环境变量已配置：
   - [ ] `DEEPSEEK_API_KEY` 已设置

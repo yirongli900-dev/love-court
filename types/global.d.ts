@@ -24,13 +24,9 @@ declare namespace NodeJS {
     /** 小程序正式/测试 API 基础地址 */
     TARO_APP_API_BASE?: string;
     /** 微信登录后端换取业务 token 的接口路径 */
-    TARO_APP_AUTH_LOGIN_PATH?: string;
     /** 是否启用微信登录换取业务 token */
-    TARO_APP_LOGIN_ENABLED?: string;
     /** 业务 token 的本地缓存 key */
-    TARO_APP_TOKEN_KEY?: string;
     /** 刷新 token 的本地缓存 key */
-    TARO_APP_REFRESH_TOKEN_KEY?: string;
     /** 云开发环境 ID */
     TARO_APP_CLOUD_ENV?: string;
     /** 是否启用云开发 */

@@ -1,7 +1,7 @@
-# 微信云服务用户登录与数据隔离部署指南
+# 微信云身份识别与数据隔离部署指南
 
 > 适用范围：云开发用户认证与案件数据隔离方案
-> 相关云函数：`userLogin`、`caseApi`
+> 核心云函数：`caseApi`
 > 相关集合：`users`、`cases`
 
 ## 1. 架构说明
@@ -9,12 +9,15 @@
 ```
 小程序前端
     ↓ wx.cloud.callFunction
-userLogin / caseApi 云函数
+caseApi 等业务云函数
     ↓ cloud.getWXContext() 获取 openid（不可伪造）
 云数据库 users / cases 集合
     ↓ where({ _openid: openid }) 过滤
 仅返回当前用户的数据
 ```
+
+小程序无需额外调用 `wx.login` 换取业务 Token。每次调用云函数时，微信平台
+都会在云端上下文中注入可信 `OPENID`。
 
 **安全保证：**
 - openid 由微信平台自动注入，前端无法伪造
